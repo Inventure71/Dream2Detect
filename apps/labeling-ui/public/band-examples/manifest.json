@@ -1,0 +1,62 @@
+[
+  {
+    "band": "0-10",
+    "image": "/band-examples/0_10.jpg",
+    "title": "Plain long box with no visible damage",
+    "source": "reviewed"
+  },
+  {
+    "band": "11-20",
+    "image": "/band-examples/11_20.jpg",
+    "title": "Softened corner on a small cube box",
+    "source": "reviewed"
+  },
+  {
+    "band": "21-30",
+    "image": "/band-examples/21_30.jpg",
+    "title": "Side-panel dent with short crease",
+    "source": "reviewed"
+  },
+  {
+    "band": "31-35",
+    "image": "/band-examples/31_35.jpg",
+    "title": "Top-Left Corner Bend with Small Stain",
+    "source": "reviewed"
+  },
+  {
+    "band": "36-45",
+    "image": "/band-examples/36_45.jpg",
+    "title": "Porch box with split edge and softened corner",
+    "source": "reviewed"
+  },
+  {
+    "band": "46-55",
+    "image": "/band-examples/46_55.jpg",
+    "title": "Moderate split on front top-left corner",
+    "source": "reviewed"
+  },
+  {
+    "band": "56-65",
+    "image": "/band-examples/56_65.jpg",
+    "title": "Near-Severe Corner Cavity",
+    "source": "reviewed"
+  },
+  {
+    "band": "66-75",
+    "image": "/band-examples/66_75.jpg",
+    "title": "Large torn-open corner on mailer box",
+    "source": "reviewed"
+  },
+  {
+    "band": "76-85",
+    "image": "/band-examples/76_85.jpg",
+    "title": "Crushed Left Panel on Porch",
+    "source": "intended_unreviewed"
+  },
+  {
+    "band": "86-100",
+    "image": "/band-examples/86_100.jpg",
+    "title": "Severe tear at front top-left",
+    "source": "reviewed"
+  }
+]

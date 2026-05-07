@@ -1,0 +1,51 @@
+# OS/editor noise
+.DS_Store
+
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+apps/labeling-ui/.env
+apps/labeling-ui/.env.*
+!apps/labeling-ui/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# JavaScript / Vite
+node_modules/
+dist/
+apps/labeling-ui/node_modules/
+apps/labeling-ui/dist/
+
+# Logs and local temp output
+*.log
+.tmp/
+tmp/
+
+# Local databases and DB snapshots
+*.sqlite3
+data/backups/
+data/calibration/
+
+# Raw external datasets
+data/real/source/
+
+# Generated synthetic image batches
+generated_images/
+
+# Optional: local training/model outputs later
+runs/
+outputs/
+checkpoints/
+models/
+*.pt
+*.pth
+*.onnx
