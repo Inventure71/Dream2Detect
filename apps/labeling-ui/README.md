@@ -16,6 +16,12 @@ apps/labeling-ui/
 
 ## Setup
 
+For teammate labeling instructions, use:
+
+- `../../docs/14-labeling-ui-teammate-guide.md`
+
+Admin setup:
+
 1. Create a Supabase project.
 2. In the Supabase SQL editor, run `supabase/schema.sql`.
 3. Copy `.env.example` to `.env`.
@@ -28,7 +34,7 @@ SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
 ```
 
-The browser app only uses the anon key. The service-role key is only for local scripts.
+The browser app only uses the anon/publishable key. The service-role key is only for admin local scripts.
 
 Current Supabase project:
 
@@ -39,6 +45,8 @@ Bucket: dream2detect-images
 ```
 
 ## Upload The Current Real Dataset
+
+Admin only. Teammates should not run this.
 
 From this folder:
 
@@ -75,6 +83,8 @@ Magic-link sign-in links are one-time use. If the browser shows
 `otp_expired`, request a fresh email link and open only the newest link.
 
 ## Export Labels Back To The Repo
+
+Admin only. Teammates should not run this.
 
 ```bash
 npm run export:real
