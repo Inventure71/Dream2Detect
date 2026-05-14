@@ -4,7 +4,7 @@ import random
 from collections import Counter
 
 from .catalog import ASSIGNMENT_FIELD_NAMES, FEATURE_AXES, get_feature_axis
-from .models import FeatureAssignment
+from .models import FeatureAssignment, FeatureOption
 
 MAX_STRESS_WEIGHT_PER_ASSIGNMENT = 1
 MAX_TEXT_RISK_PER_ASSIGNMENT = 2
@@ -73,6 +73,17 @@ def sample_feature_assignments(
                                 location_value=option.value,
                             )
                         )
+                if axis.name == "camera_angle":
+                    location_value = chosen_values.get("damage_location_primary")
+                    if location_value is not None:
+                        allowed = tuple(
+                            option
+                            for option in allowed
+                            if _is_camera_compatible_with_location(
+                                camera_option=option,
+                                location_value=location_value,
+                            )
+                        )
                 allowed_values = [option.value for option in allowed]
                 if not allowed_values:
                     raise RuntimeError(f"No allowed feature values for axis {axis.name!r} in band {score_band!r}")
@@ -123,6 +134,11 @@ def _is_location_compatible_with_primary(*, primary_value: str, location_value: 
     primary_axis = get_feature_axis("damage_profile_primary")
     primary_option = next(option for option in primary_axis.options if option.value == primary_value)
     compatible_locations = primary_option.compatible_damage_locations
+    return compatible_locations is None or location_value in compatible_locations
+
+
+def _is_camera_compatible_with_location(*, camera_option: FeatureOption, location_value: str) -> bool:
+    compatible_locations = camera_option.compatible_damage_locations
     return compatible_locations is None or location_value in compatible_locations
 
 

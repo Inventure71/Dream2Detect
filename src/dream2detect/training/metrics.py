@@ -3,7 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
-from sklearn.metrics import confusion_matrix, f1_score
+from sklearn.metrics import confusion_matrix, f1_score, precision_recall_fscore_support
+
+
+@dataclass(frozen=True)
+class PerClassMetrics:
+    precision: float
+    recall: float
+    f1: float
+    support: int
 
 
 @dataclass(frozen=True)
@@ -11,6 +19,9 @@ class ClassificationMetrics:
     accuracy: float
     macro_f1: float
     confusion: list[list[int]]
+    per_class: dict[str, PerClassMetrics]
+    predicted_class_distribution: dict[str, int]
+    target_class_distribution: dict[str, int]
 
 
 def logits_to_predictions(logits: torch.Tensor) -> torch.Tensor:
@@ -54,7 +65,74 @@ def compute_macro_f1(
     """
     predictions_np = predictions.detach().cpu().numpy()
     targets_np = targets.detach().cpu().numpy()
-    return float(f1_score(targets_np, predictions_np, average="macro"))
+    return float(
+        f1_score(
+            targets_np,
+            predictions_np,
+            average="macro",
+            zero_division=0,
+        )
+    )
+
+
+def build_class_names(
+    num_classes: int,
+    class_names: list[str] | tuple[str, ...] | None = None,
+) -> list[str]:
+    if class_names is None:
+        return [f"class_{index}" for index in range(num_classes)]
+
+    normalized_names = list(class_names)
+    if len(normalized_names) != num_classes:
+        raise ValueError(
+            f"Expected {num_classes} class names, got {len(normalized_names)}."
+        )
+    return normalized_names
+
+
+def compute_class_distribution(
+    labels: torch.Tensor,
+    *,
+    num_classes: int,
+    class_names: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, int]:
+    normalized_names = build_class_names(num_classes, class_names)
+    labels_cpu = labels.detach().cpu().to(torch.long)
+    counts = torch.bincount(labels_cpu, minlength=num_classes)
+
+    return {
+        class_name: int(counts[class_index].item())
+        for class_index, class_name in enumerate(normalized_names)
+    }
+
+
+def compute_per_class_metrics(
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    num_classes: int,
+    class_names: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, PerClassMetrics]:
+    normalized_names = build_class_names(num_classes, class_names)
+    predictions_np = predictions.detach().cpu().numpy()
+    targets_np = targets.detach().cpu().numpy()
+
+    precision, recall, f1, support = precision_recall_fscore_support(
+        targets_np,
+        predictions_np,
+        labels=list(range(num_classes)),
+        zero_division=0,
+    )
+
+    return {
+        class_name: PerClassMetrics(
+            precision=float(precision[class_index]),
+            recall=float(recall[class_index]),
+            f1=float(f1[class_index]),
+            support=int(support[class_index]),
+        )
+        for class_index, class_name in enumerate(normalized_names)
+    }
 
 
 def compute_confusion(
@@ -86,6 +164,7 @@ def compute_classification_metrics(
     logits: torch.Tensor,
     targets: torch.Tensor,
     num_classes: int = 4,
+    class_names: list[str] | tuple[str, ...] | None = None,
 ) -> ClassificationMetrics:
     """
     End-to-end helper:
@@ -93,9 +172,58 @@ def compute_classification_metrics(
     - predictions + targets -> accuracy, macro F1, confusion matrix
     """
     predictions = logits_to_predictions(logits)
+    normalized_names = build_class_names(num_classes, class_names)
 
     return ClassificationMetrics(
         accuracy=compute_accuracy(predictions, targets),
         macro_f1=compute_macro_f1(predictions, targets),
         confusion=compute_confusion(predictions, targets, num_classes=num_classes),
+        per_class=compute_per_class_metrics(
+            predictions,
+            targets,
+            num_classes=num_classes,
+            class_names=normalized_names,
+        ),
+        predicted_class_distribution=compute_class_distribution(
+            predictions,
+            num_classes=num_classes,
+            class_names=normalized_names,
+        ),
+        target_class_distribution=compute_class_distribution(
+            targets,
+            num_classes=num_classes,
+            class_names=normalized_names,
+        ),
+    )
+
+
+def compute_classification_metrics_from_predictions(
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    *,
+    num_classes: int = 4,
+    class_names: list[str] | tuple[str, ...] | None = None,
+) -> ClassificationMetrics:
+    normalized_names = build_class_names(num_classes, class_names)
+
+    return ClassificationMetrics(
+        accuracy=compute_accuracy(predictions, targets),
+        macro_f1=compute_macro_f1(predictions, targets),
+        confusion=compute_confusion(predictions, targets, num_classes=num_classes),
+        per_class=compute_per_class_metrics(
+            predictions,
+            targets,
+            num_classes=num_classes,
+            class_names=normalized_names,
+        ),
+        predicted_class_distribution=compute_class_distribution(
+            predictions,
+            num_classes=num_classes,
+            class_names=normalized_names,
+        ),
+        target_class_distribution=compute_class_distribution(
+            targets,
+            num_classes=num_classes,
+            class_names=normalized_names,
+        ),
     )

@@ -9,7 +9,7 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from dream2detect.services.prompt_drafting import draft_prompts_for_band, save_drafted_prompts
+from dream2detect.pipelines.v1.prompt_drafting import draft_prompts_for_band, save_drafted_prompts
 from dream2detect.storage.repository import Dream2DetectRepository
 
 

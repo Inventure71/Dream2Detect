@@ -42,6 +42,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Export only reviewed images accepted as labeled or relabeled.",
     )
+    parser.add_argument(
+        "--image-path-contains",
+        default=None,
+        help="Optional substring filter for image_path/image_ref, useful for exporting one generation batch.",
+    )
     return parser.parse_args()
 
 
@@ -63,12 +68,14 @@ def _resolve_training_label(prompt_row) -> tuple[str, str, int, str]:
     return score_band, coarse_class, representative_score, label_source
 
 
-def _include_row(prompt_row, *, reviewed_only: bool) -> bool:
+def _include_row(prompt_row, *, reviewed_only: bool, image_path_contains: str | None) -> bool:
     if prompt_row["image_status"] != "generated":
         return False
     if prompt_row["qc_status"] == "rejected":
         return False
     if reviewed_only and prompt_row["qc_status"] not in {"accepted_as_labeled", "accepted_relabel"}:
+        return False
+    if image_path_contains is not None and image_path_contains not in (prompt_row["image_ref"] or ""):
         return False
     return True
 
@@ -84,7 +91,11 @@ def main() -> None:
 
     rows_to_write: list[dict[str, str | int]] = []
     for prompt_row in prompts:
-        if not _include_row(prompt_row, reviewed_only=args.reviewed_only):
+        if not _include_row(
+            prompt_row,
+            reviewed_only=args.reviewed_only,
+            image_path_contains=args.image_path_contains,
+        ):
             continue
         training_score_band, training_coarse_class, training_representative_score, training_label_source = (
             _resolve_training_label(prompt_row)

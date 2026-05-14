@@ -115,6 +115,28 @@ Expected output:
 - feature-assignment records per prompt
 - stable generation instructions
 
+### V2 prompt update
+
+The v1 prompt pipeline is preserved under `src/dream2detect/pipelines/v1/`.
+
+The current improvement path is the v2 real-failure-targeted prompt pipeline in
+`src/dream2detect/pipelines/v2/`. V2 is designed around the observed
+synthetic-to-real failures, especially damaged real packages predicted as
+`intact`, flat taped mailers, subtle boundary damage, cluttered real capture
+conditions, and hard intact negatives.
+
+V2 prepares reviewable prompt and Batch API artifacts locally. It does not
+submit API jobs by itself.
+
+The May 13 cleanup froze the current missing-coverage targets:
+
+- reduce high-confidence real damaged examples predicted as `intact`
+- increase `minor` recall without exaggerating minor damage into moderate damage
+- make moderate geometry loss visible in realistic phone-photo conditions
+- make severe openings/collapse realistic but unmistakable
+- keep hard intact negatives structurally intact despite tape, labels, clutter,
+  shadows, and scuffs
+
 ## Workstream 2: Synthetic Dataset Pipeline
 
 1. generate a small pilot batch first
@@ -139,6 +161,17 @@ Expected metadata per synthetic image:
 - prompt identifier
 - generation batch
 - quality status
+
+V2 synthetic images must pass a stricter domain-gap QC gate before training:
+
+- reject render-like, stylized, or product-ad images
+- reject images whose defect is hidden or semantically different from the
+  manifest
+- reject hard intact negatives that contain structural damage
+- reject obvious score-band mismatches
+- reject images dominated by readable labels, addresses, logos, or large text
+- prefer ordinary smartphone-like package photos with realistic tape, labels,
+  lighting, background clutter, compression, and imperfect framing
 
 ## Workstream 3: Real Dataset Relabeling
 
@@ -253,3 +286,47 @@ The project is only complete when:
 - the comparison models are trained,
 - evaluation is done on held-out real data,
 - the final report explains the observed differences rather than only listing scores.
+
+## V3 Synthetic-Only Phase
+
+Before another major real-transfer push, the current plan now includes a
+synthetic-only V3 training phase:
+
+- [18-v3-synthetic-training-plan.md](/Users/inventure71/VSProjects/School/Dream2Detect/docs/18-v3-synthetic-training-plan.md)
+
+This phase freezes the current V2 synthetic-only baseline and focuses on three
+training changes:
+
+- GroupNorm residual training for small-batch stability
+- true ordinal coarse-class training
+- constrained RandAugment-style synthetic-safe augmentation profiles
+
+Frozen V2 comparison artifact:
+
+- [v2_synthetic_baseline_20260513.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v2_synthetic_baseline_20260513.csv)
+
+V3.1 completion update:
+
+- the primary synthetic-only evaluation is now the harder
+  `metadata_family_holdout` split
+- the derived holdout family uses:
+  `training_coarse_class | damage_profile_primary | box_form_factor | background_context`
+- the current hard-split baseline artifact is:
+  [v3_1_hard_split_baseline_20260513.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v3_1_hard_split_baseline_20260513.csv)
+- the supporting run comparison table is:
+  [v3_1_metadata_family_holdout_comparison_20260513.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v3_1_metadata_family_holdout_comparison_20260513.csv)
+
+## Score-Band Target Phase
+
+The next target shift is now explicit:
+
+- primary task: `score_band` with the official 10 severity bands
+- secondary view: collapse the score-band model back to the 4 coarse classes
+
+The frozen coarse implementation/reference before this shift is:
+
+- [coarse_reference_before_score_band_target_20260514.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/coarse_reference_before_score_band_target_20260514.csv)
+
+The phase-specific plan is:
+
+- [19-score-band-target-plan.md](/Users/inventure71/VSProjects/School/Dream2Detect/docs/19-score-band-target-plan.md)

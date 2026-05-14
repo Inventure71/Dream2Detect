@@ -25,6 +25,8 @@ Follow these rules:
 15. keep the prompt realistic and varied, but do not use freedom in wording as an excuse to contradict the assignment
 16. do not invent large readable printed package text, oversized warning stickers, dominant barcode blocks, or big background signage unless the assignment explicitly allows them, and even then keep them secondary and only partly readable
 17. when the assignment allows a small label or barcode, keep it physically small, off to one side, and never make it the most visually salient element after the damage itself
+18. keep the entire package visible in frame; do not use close-up crops, zoomed-in corners, macro shots, or partial-box framing
+19. the assigned primary defect must remain visible from the assigned camera angle; do not choose a composition where the viewpoint hides the labeled damage
 
 ## Inputs
 
@@ -76,7 +78,7 @@ Treat these as **allowed variation** that may change from prompt to prompt witho
 - precise cardboard shade or texture
 - tiny cosmetic wear that stays below the assigned severity
 - exact shadow shape
-- camera distance while keeping the box readable and central
+- minor camera distance while keeping the full box readable, central, and fully visible
 - small scene details that do not introduce clutter or new defect meaning
 - wording style, as long as the assignment meaning remains intact
 

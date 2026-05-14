@@ -59,6 +59,27 @@ These vary the box appearance and packaging style without changing the severity 
 
 These are nuisance or context variables the model should not overfit to.
 
+Camera-angle variation should change the viewpoint while preserving a **full-box view**. The camera angle is not a permission to crop into a damaged corner, use a macro detail shot, or show only part of the package. The whole package should remain visible, central, and labelable.
+
+Camera-angle choices should also remain compatible with the assigned primary damage location. For example, a left-side profile should not be paired with right-side-panel damage if that would hide the labeled defect. The sampler enforces compatibility for viewpoint options whose visibility is location-sensitive.
+
+Current `camera_angle` values:
+
+- `front_eye_level`
+- `three_quarter_left`
+- `three_quarter_right`
+- `slightly_top_down`
+- `low_angle_front`
+- `top_down`
+- `high_three_quarter_left`
+- `high_three_quarter_right`
+- `side_profile_left`
+- `side_profile_right`
+- `bottom_edge_low`
+- `diagonal_corner_view`
+
+`bottom_edge_low` means a low full-box view where the bottom edge is visible. It does not mean a pure underside-only shot, because that would often hide the damage signal and make labels harder to review.
+
 ## Stress Policy
 
 Some nuisance values are valid but risk making band calibration noisier if they stack together.

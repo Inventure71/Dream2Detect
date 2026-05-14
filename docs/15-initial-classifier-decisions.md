@@ -101,17 +101,17 @@ Class distribution:
 This is not large enough for strong scientific conclusions.
 It is large enough to validate the training pipeline and run an exploratory synthetic-only experiment.
 
-## Decision 3: Start With `128 x 128`, Keep `224 x 224` As The First Upgrade Path
+## Decision 3: Retire `128 x 128` For Paper-Relevant Training
 
 ### Decision
 
-Resize training images to:
+Use:
 
-- **`128 x 128`** for the first classifier implementation
+- **`224 x 224`** for paper-relevant synthetic-only classifier runs
 
-Keep:
+Treat:
 
-- **`224 x 224`** as the first resolution upgrade path if subtle-damage recognition looks too weak
+- **`128 x 128`** as a historical smoke-test resolution only
 
 ### Why this decision needed a check
 
@@ -168,11 +168,12 @@ There are two different goals here:
 
 So the practical decision is:
 
-- start at `128 x 128` because it is faster and cheaper
-- do not treat that as final
-- if the classifier struggles on subtle edge, corner, puncture, or crease cues, move next to `224 x 224`
+- keep `128 x 128` only as a fast smoke-test path
+- use `224 x 224` for meaningful classifier training
+- do not report `128 x 128` as the current primary experiment path
 
-This is the correct compromise for the current stage because we are still validating the training stack.
+This is the correct compromise because the training stack has now been
+validated and the stronger result came from preserving more image detail.
 
 ### Important boundary
 
@@ -180,8 +181,72 @@ The comparison images show that `224` preserves more subtle defect structure tha
 
 So the current rule is:
 
-- `128` = first fast training resolution
-- `224` = first escalation step if image detail becomes the bottleneck
+- `128` = historical fast smoke-test resolution
+- `224` = default resolution for current classifier experiments
+
+### Post-training update
+
+The no-new-image escalation pass confirmed that image detail is already a
+practical bottleneck. The strongest run so far uses the existing generated
+images cached at `224 x 224`, not the `128 x 128` cache.
+
+Current working default for follow-up synthetic-only classifier runs:
+
+- image size: `224 x 224`
+- learning rate: `0.0003`
+- weight decay: `0.0001`
+- dropout: `0.1`
+- balanced sampler: enabled
+- augmentation: mild
+- early-stopping patience: `20`
+
+The `128 x 128` attempt failed as a paper-relevant path because it consistently
+underperformed the `224 x 224` run and likely removed useful subtle-damage
+signal. Keep its artifacts as historical evidence, but do not use it for the
+main experiment unless a future controlled run gives a strong reason to reopen
+that decision.
+
+## Decision 3B: Cache Deterministic Preprocessing
+
+### Decision
+
+For repeated training at a fixed resolution, create a processed-image cache and a derived manifest.
+
+Historical first cache:
+
+- images:
+  - `/Users/inventure71/VSProjects/School/Dream2Detect/data/cache/synthetic_all_processed_128`
+- manifest:
+  - `/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/synthetic_starting_dataset_phase1_round1_processed_128.csv`
+
+Current synthetic-only cache:
+
+- images:
+  - `/Users/inventure71/VSProjects/School/Dream2Detect/data/cache/synthetic_combined_phase1_plus_scaleup_200_processed_224`
+- manifest:
+  - `/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/synthetic_combined_phase1_plus_scaleup_200_processed_224.csv`
+
+### Rationale
+
+Some preprocessing is deterministic and should not be repeated on every epoch:
+
+- open image
+- convert to RGB
+- resize to the fixed training resolution
+
+That work can be done once and cached.
+
+Random augmentation should still happen during training only:
+
+- horizontal flip
+- color jitter
+
+So the rule is:
+
+- cache deterministic preprocessing
+- keep stochastic augmentation online
+
+This reduces unnecessary repeated image work while preserving the augmentation behavior needed for training.
 
 ## Decision 4: Split Into Train / Validation / Test
 
@@ -494,7 +559,17 @@ For the first classifier pipeline:
 - unreviewed images: allowed for exploratory training
 - augmentation: train only, mild
 - loss: class-weighted cross-entropy
+- optimizer: `AdamW`
+- adaptive learning rate: `ReduceLROnPlateau` on validation macro F1
 - metrics: accuracy, macro F1, confusion matrix
+- artifacts: per-epoch checkpoints, epoch metrics CSV/JSONL, training curve PNG,
+  and class-monitoring PNG updated during training
+- monitoring: per-class precision, recall, F1, support, and predicted-class counts
+- imbalance handling: inverse-frequency training sampler by default, with a CLI
+  flag available for comparison runs
+- debug controls: configurable dropout, weight decay, optimizer, learning-rate
+  scheduler, augmentation toggle, early-stopping settings, and balanced
+  overfit-subset mode
 
 These decisions are enough to begin implementing:
 

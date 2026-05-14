@@ -2,6 +2,57 @@ from __future__ import annotations
 
 from .models import FeatureAxis, FeatureOption
 
+FRONT_VISIBLE_LOCATIONS = frozenset(
+    {
+        "front_top_left_corner",
+        "front_top_right_corner",
+        "front_bottom_left_corner",
+        "front_bottom_right_corner",
+        "front_face_center",
+        "top_flap_edge",
+    }
+)
+LEFT_VISIBLE_LOCATIONS = frozenset(
+    {
+        "front_top_left_corner",
+        "front_bottom_left_corner",
+        "left_side_panel",
+        "top_flap_edge",
+    }
+)
+RIGHT_VISIBLE_LOCATIONS = frozenset(
+    {
+        "front_top_right_corner",
+        "front_bottom_right_corner",
+        "right_side_panel",
+        "top_flap_edge",
+    }
+)
+TOP_VISIBLE_LOCATIONS = frozenset(
+    {
+        "front_top_left_corner",
+        "front_top_right_corner",
+        "front_face_center",
+        "top_flap_edge",
+    }
+)
+LOW_EDGE_VISIBLE_LOCATIONS = frozenset(
+    {
+        "front_bottom_left_corner",
+        "front_bottom_right_corner",
+        "left_side_panel",
+        "right_side_panel",
+    }
+)
+CORNER_VISIBLE_LOCATIONS = frozenset(
+    {
+        "front_top_left_corner",
+        "front_top_right_corner",
+        "front_bottom_left_corner",
+        "front_bottom_right_corner",
+    }
+)
+
 
 BACKGROUND_CONTEXT_AXIS = FeatureAxis(
     name="background_context",
@@ -26,13 +77,55 @@ BACKGROUND_CONTEXT_AXIS = FeatureAxis(
 CAMERA_ANGLE_AXIS = FeatureAxis(
     name="camera_angle",
     category="image_capture",
-    description="Primary camera viewpoint used for the package photo.",
+    description="Primary camera viewpoint used for the package photo. All viewpoints keep the full box visible.",
     options=(
-        FeatureOption("camera_angle", "front_eye_level", "front eye-level view"),
-        FeatureOption("camera_angle", "three_quarter_left", "slight three-quarter view from the left"),
-        FeatureOption("camera_angle", "three_quarter_right", "slight three-quarter view from the right"),
-        FeatureOption("camera_angle", "slightly_top_down", "slightly top-down angle"),
-        FeatureOption("camera_angle", "low_angle_front", "low frontal angle that still keeps defects readable"),
+        FeatureOption("camera_angle", "front_eye_level", "front eye-level full-box view"),
+        FeatureOption("camera_angle", "three_quarter_left", "slight three-quarter full-box view from the left"),
+        FeatureOption("camera_angle", "three_quarter_right", "slight three-quarter full-box view from the right"),
+        FeatureOption("camera_angle", "slightly_top_down", "slightly top-down full-box angle"),
+        FeatureOption("camera_angle", "low_angle_front", "low frontal full-box angle that still keeps defects readable"),
+        FeatureOption(
+            "camera_angle",
+            "top_down",
+            "direct overhead full-box view",
+            compatible_damage_locations=TOP_VISIBLE_LOCATIONS,
+        ),
+        FeatureOption(
+            "camera_angle",
+            "high_three_quarter_left",
+            "high three-quarter full-box view from the left",
+            compatible_damage_locations=FRONT_VISIBLE_LOCATIONS | LEFT_VISIBLE_LOCATIONS,
+        ),
+        FeatureOption(
+            "camera_angle",
+            "high_three_quarter_right",
+            "high three-quarter full-box view from the right",
+            compatible_damage_locations=FRONT_VISIBLE_LOCATIONS | RIGHT_VISIBLE_LOCATIONS,
+        ),
+        FeatureOption(
+            "camera_angle",
+            "side_profile_left",
+            "left-side profile full-box view with the assigned damage still visible",
+            compatible_damage_locations=LEFT_VISIBLE_LOCATIONS,
+        ),
+        FeatureOption(
+            "camera_angle",
+            "side_profile_right",
+            "right-side profile full-box view with the assigned damage still visible",
+            compatible_damage_locations=RIGHT_VISIBLE_LOCATIONS,
+        ),
+        FeatureOption(
+            "camera_angle",
+            "bottom_edge_low",
+            "low full-box view with the bottom edge visible",
+            compatible_damage_locations=LOW_EDGE_VISIBLE_LOCATIONS,
+        ),
+        FeatureOption(
+            "camera_angle",
+            "diagonal_corner_view",
+            "diagonal full-box view aimed across a visible corner",
+            compatible_damage_locations=CORNER_VISIBLE_LOCATIONS,
+        ),
     ),
 )
 

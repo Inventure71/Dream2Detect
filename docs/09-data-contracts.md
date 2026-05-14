@@ -15,9 +15,11 @@ The project now uses this starter layout:
 
 ```text
 data/
+  cache/
+    synthetic_combined_phase1_plus_scaleup_200_processed_224/
   dream2detect.sqlite3
   datasets/
-    synthetic_starting_dataset_phase1_round1.csv
+    synthetic_combined_phase1_plus_scaleup_200_processed_224.csv
     synthetic_reviewed_seed_set_phase1_round1.csv
   manifests/
     pilot_prompt_manifest.csv
@@ -33,6 +35,8 @@ data/
   synthetic/
     pilot/
     batches/
+  training_runs/
+    synthetic_classifier/
   templates/
     prompt_writing_template.md
     synthetic_prompt_manifest_template.csv
@@ -86,6 +90,18 @@ The execution database for:
 - image linkage,
 - local image references.
 
+Important identity rule:
+
+- use `prompt_uid` for cross-manifest reconciliation
+- do not use numeric `prompt_id` as a global stable key across merged historical
+  manifests
+
+The current database has been synced to the full-QC synthetic manifest for all
+available matching `prompt_uid` rows. The current training source of truth is
+still the exported full-QC manifest under `data/datasets/`, because some older
+phase-1 rows exist in the training manifest but not in the current execution
+database.
+
 ### `data/datasets/`
 
 Training-facing exported manifests derived from the execution database.
@@ -94,12 +110,39 @@ These exist so training code can consume a stable CSV without having to know the
 
 Current examples:
 
-- `synthetic_starting_dataset_phase1_round1.csv`
+- `synthetic_combined_phase1_plus_targeted_555_full_qc_source.csv`
+  - current paper-facing synthetic source manifest
+  - `800` rows
+  - full image-level QC labels for the phase-1, scale-up, and targeted-555
+    synthetic pools
+  - should be preferred over older `unreviewed` or partial-QC manifests for
+    current synthetic training
+- `synthetic_combined_phase1_plus_targeted_555_full_qc_processed_384.csv`
+  - current preferred processed synthetic training manifest
+  - points at deterministic `384 x 384` processed image assets
+- `synthetic_combined_phase1_plus_scaleup_200_processed_224.csv`
   - best-available training labels
-  - includes reviewed and unreviewed generated synthetic images
+  - includes the phase-1 seed set plus the 200-image scale-up batch
+  - points `image_path` at deterministic RGB-resized `224 x 224` cached copies
+  - keeps `source_image_path` as provenance for the original generated image
 - `synthetic_reviewed_seed_set_phase1_round1.csv`
   - reviewed-only seed subset
   - excludes unreviewed and rejected images
+
+### `data/cache/`
+
+Deterministic derived image assets for training.
+
+These are not the canonical synthetic source images.
+
+They exist to avoid repeating the same non-random preprocessing on every epoch.
+
+Current example:
+
+- `synthetic_combined_phase1_plus_scaleup_200_processed_224/`
+  - RGB-converted
+  - resized to `224 x 224`
+  - no random augmentation baked in
 
 ### `generated_images/`
 
@@ -114,6 +157,59 @@ Canonical storage rule:
 Each prompt record may have a nullable `image_ref`.
 
 If `image_ref` is empty, that prompt still needs image generation.
+
+### `data/training_runs/`
+
+Saved artifacts from classifier training runs.
+
+Each run directory should contain at least:
+
+- `run_config.json`
+- `metrics.json`
+- `train_split.csv`
+- `val_split.csv`
+- `test_split.csv`
+- `best_model.pt`
+- `checkpoints/epoch_XXX.pt`
+- `checkpoints/latest.pt`
+- `checkpoints/best.pt`
+- `epoch_metrics.jsonl`
+- `epoch_metrics.csv`
+- `training_curves.png`
+- `class_monitoring.png`
+
+The per-epoch checkpoint files store model weights, optimizer state, run
+configuration, and that epoch's train/validation metrics. The CSV and PNGs are
+for quick inspection during training; the JSONL file preserves the richer
+per-epoch metric payload.
+
+Classifier grid runs may be stored under:
+
+- `data/training_runs/synthetic_classifier_grid/<grid_name>/`
+
+Each grid directory should contain:
+
+- one subdirectory per experiment configuration
+- `grid_summary.csv`
+
+Synthetic regressor runs may be stored under:
+
+- `data/training_runs/synthetic_regressor/<run_name>/`
+
+Each regressor directory should contain:
+
+- `run_config.json`
+- `metrics.json`
+- `train_split.csv`
+- `val_split.csv`
+- `test_split.csv`
+- `best_model.pt`
+- `epoch_metrics.jsonl`
+- `epoch_metrics.csv`
+
+The regressor predicts `representative_score` and reports both continuous
+metrics such as MAE/RMSE and bucketed coarse-class metrics for comparison with
+the classifier.
 
 ## Structured Feature Assignment Rule
 
