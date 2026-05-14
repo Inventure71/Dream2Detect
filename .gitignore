@@ -1,47 +1,44 @@
-# OS/editor noise
+# macOS / editor noise
 .DS_Store
 
-# Secrets and local environment files
+# Local secrets and environment files
 .env
 .env.*
 !.env.example
-apps/labeling-ui/.env
-apps/labeling-ui/.env.*
-!apps/labeling-ui/.env.example
 
-# Python
+# Python runtime and test caches
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.matplotlib-cache/
+
+# Local virtual environments
 .venv/
 venv/
 
-# JavaScript / Vite
+# JavaScript dependencies and build output
 node_modules/
 dist/
-apps/labeling-ui/node_modules/
-apps/labeling-ui/dist/
 
-# Logs and local temp output
+# Logs and scratch space
 *.log
-.tmp/
 tmp/
+.tmp/
 
-# Local databases and DB snapshots
+# Local databases and snapshots
 *.sqlite3
-data/backups/
-data/calibration/
 
-# Raw external datasets
-data/real/source/
+# Project data is distributed separately because it is large.
+data/*
+!data/README.md
 
-# Generated synthetic image batches
+# Generated image output outside data/
 generated_images/
 
-# Optional: local training/model outputs later
+# Training outputs and model artifacts
 runs/
 outputs/
 checkpoints/
