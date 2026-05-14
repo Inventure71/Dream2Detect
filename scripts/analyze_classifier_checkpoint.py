@@ -16,12 +16,19 @@ from PIL import ImageDraw
 from dream2detect.training.dataset import (
     COARSE_CLASS_NAMES,
     COARSE_CLASS_TO_INDEX,
+    SCORE_BAND_NAMES,
+    SCORE_BAND_TO_INDEX,
     build_eval_transform,
+)
+from dream2detect.training.metrics import (
+    band_indices_to_coarse_indices,
+    collapse_score_band_probabilities_to_coarse,
 )
 from dream2detect.training.models import build_classifier_model
 from dream2detect.training.splits import build_stratified_splits
 from dream2detect.training.train_classifier import (
     decode_cumulative_ordinal_logits,
+    get_target_label_spec,
     infer_resize_policy,
     model_output_dim_for_target_mode,
 )
@@ -37,14 +44,17 @@ class ExamplePrediction:
     score_band: str
     label_source: str
     qc_status: str
-    true_class: str
-    predicted_class: str
+    true_label: str
+    predicted_label: str
+    true_coarse_class: str
+    predicted_coarse_class: str
     correct: bool
     confidence: float
     true_probability: float
     margin: float
     ordinal_error: int
     probabilities: dict[str, float]
+    coarse_probabilities: dict[str, float]
 
 
 def parse_args() -> argparse.Namespace:
@@ -90,6 +100,12 @@ def load_run_config(run_dir: Path) -> dict[str, object]:
     return json.loads(config_path.read_text())
 
 
+def get_target_class_names(target_label_mode: str) -> tuple[str, ...]:
+    if target_label_mode == "score_band":
+        return SCORE_BAND_NAMES
+    return COARSE_CLASS_NAMES
+
+
 def load_model(
     *,
     checkpoint_path: Path,
@@ -97,10 +113,11 @@ def load_model(
     device: torch.device,
 ) -> torch.nn.Module:
     target_label_mode = str(run_config.get("target_label_mode", "coarse"))
+    target_class_names = get_target_class_names(target_label_mode)
     model = build_classifier_model(
         num_classes=model_output_dim_for_target_mode(
             target_label_mode,
-            num_classes=len(COARSE_CLASS_NAMES),
+            num_classes=len(target_class_names),
         ),
         dropout_p=float(run_config.get("dropout_p", 0.1)),
         model_variant=str(run_config.get("model_variant", "simple_cnn")),
@@ -138,6 +155,7 @@ def split_indices(
     *,
     row_count: int | None = None,
     all_as_test: bool = False,
+    label_column: str = "training_coarse_class",
     train_fraction: float = 0.6,
     val_fraction: float = 0.2,
     test_fraction: float = 0.2,
@@ -159,6 +177,7 @@ def split_indices(
         val_fraction=val_fraction,
         test_fraction=test_fraction,
         random_seed=random_seed,
+        label_column=label_column,
         split_strategy=split_strategy,
         split_group_column=split_group_column,
     )
@@ -184,7 +203,7 @@ def predict_examples(
         include_resize=include_resize,
     )
     examples: list[ExamplePrediction] = []
-    class_names = list(COARSE_CLASS_NAMES)
+    class_names = list(get_target_class_names(target_label_mode))
 
     with torch.no_grad():
         for split_name, indices in indices_by_split.items():
@@ -194,9 +213,10 @@ def predict_examples(
                 image = Image.open(image_path).convert("RGB")
                 image_tensor = transform(image).unsqueeze(0).to(device)
                 logits = model(image_tensor)
-                true_class = str(row["training_coarse_class"])
-                true_index = COARSE_CLASS_TO_INDEX[true_class]
+                true_coarse_class = str(row["training_coarse_class"])
                 if target_label_mode == "coarse_ordinal":
+                    true_label = true_coarse_class
+                    true_index = COARSE_CLASS_TO_INDEX[true_label]
                     threshold_probabilities = torch.sigmoid(logits).squeeze(0).cpu()
                     predicted_index = int(
                         decode_cumulative_ordinal_logits(logits.cpu()).item()
@@ -213,18 +233,49 @@ def predict_examples(
                     probability_total = probabilities_tensor.sum()
                     if probability_total > 0:
                         probabilities_tensor = probabilities_tensor / probability_total
-                else:
+                    coarse_probabilities_tensor = probabilities_tensor
+                    predicted_label = class_names[predicted_index]
+                    predicted_coarse_class = predicted_label
+                elif target_label_mode == "score_band":
+                    true_label = str(row["training_score_band"])
+                    true_index = SCORE_BAND_TO_INDEX[true_label]
                     probabilities_tensor = torch.softmax(logits, dim=1).squeeze(0).cpu()
                     predicted_index = int(torch.argmax(probabilities_tensor).item())
+                    predicted_label = class_names[predicted_index]
+                    coarse_probabilities_tensor = (
+                        collapse_score_band_probabilities_to_coarse(
+                            probabilities_tensor.unsqueeze(0)
+                        )
+                        .squeeze(0)
+                        .cpu()
+                    )
+                    predicted_coarse_class = COARSE_CLASS_NAMES[
+                        int(torch.argmax(coarse_probabilities_tensor).item())
+                    ]
+                else:
+                    true_label = true_coarse_class
+                    true_index = COARSE_CLASS_TO_INDEX[true_label]
+                    probabilities_tensor = torch.softmax(logits, dim=1).squeeze(0).cpu()
+                    predicted_index = int(torch.argmax(probabilities_tensor).item())
+                    coarse_probabilities_tensor = probabilities_tensor
+                    predicted_label = class_names[predicted_index]
+                    predicted_coarse_class = predicted_label
 
                 probabilities = {
                     class_name: float(probabilities_tensor[class_index].item())
                     for class_index, class_name in enumerate(class_names)
                 }
-                predicted_class = class_names[predicted_index]
+                coarse_probabilities = {
+                    class_name: float(coarse_probabilities_tensor[class_index].item())
+                    for class_index, class_name in enumerate(COARSE_CLASS_NAMES)
+                }
                 sorted_probs = sorted(probabilities_tensor.tolist(), reverse=True)
                 confidence = float(sorted_probs[0])
-                margin = float(sorted_probs[0] - sorted_probs[1])
+                margin = (
+                    float(sorted_probs[0] - sorted_probs[1])
+                    if len(sorted_probs) > 1
+                    else float(sorted_probs[0])
+                )
 
                 examples.append(
                     ExamplePrediction(
@@ -236,14 +287,17 @@ def predict_examples(
                         score_band=str(row.get("training_score_band", "")),
                         label_source=str(row.get("training_label_source", "")),
                         qc_status=str(row.get("qc_status", "")),
-                        true_class=true_class,
-                        predicted_class=predicted_class,
-                        correct=predicted_class == true_class,
+                        true_label=true_label,
+                        predicted_label=predicted_label,
+                        true_coarse_class=true_coarse_class,
+                        predicted_coarse_class=predicted_coarse_class,
+                        correct=predicted_label == true_label,
                         confidence=confidence,
                         true_probability=float(probabilities_tensor[true_index].item()),
                         margin=margin,
                         ordinal_error=abs(predicted_index - true_index),
                         probabilities=probabilities,
+                        coarse_probabilities=coarse_probabilities,
                     )
                 )
 
@@ -253,11 +307,23 @@ def predict_examples(
 def confusion_matrix(
     examples: list[ExamplePrediction],
 ) -> list[list[int]]:
-    class_names = list(COARSE_CLASS_NAMES)
-    matrix = [[0 for _ in class_names] for _ in class_names]
+    return confusion_matrix_for_labels(examples, label_names=COARSE_CLASS_NAMES)
+
+
+def confusion_matrix_for_labels(
+    examples: list[ExamplePrediction],
+    *,
+    label_names: tuple[str, ...],
+    true_attr: str = "true_label",
+    predicted_attr: str = "predicted_label",
+) -> list[list[int]]:
+    label_to_index = {label: index for index, label in enumerate(label_names)}
+    matrix = [[0 for _ in label_names] for _ in label_names]
     for example in examples:
-        true_index = COARSE_CLASS_TO_INDEX[example.true_class]
-        predicted_index = COARSE_CLASS_TO_INDEX[example.predicted_class]
+        true_label = str(getattr(example, true_attr))
+        predicted_label = str(getattr(example, predicted_attr))
+        true_index = label_to_index[true_label]
+        predicted_index = label_to_index[predicted_label]
         matrix[true_index][predicted_index] += 1
     return matrix
 
@@ -265,11 +331,26 @@ def confusion_matrix(
 def per_class_rows(
     examples: list[ExamplePrediction],
 ) -> list[dict[str, object]]:
+    return per_label_rows(examples, label_names=COARSE_CLASS_NAMES)
+
+
+def per_label_rows(
+    examples: list[ExamplePrediction],
+    *,
+    label_names: tuple[str, ...],
+    true_attr: str = "true_label",
+    predicted_attr: str = "predicted_label",
+) -> list[dict[str, object]]:
     total = len(examples)
-    matrix = confusion_matrix(examples)
+    matrix = confusion_matrix_for_labels(
+        examples,
+        label_names=label_names,
+        true_attr=true_attr,
+        predicted_attr=predicted_attr,
+    )
     rows: list[dict[str, object]] = []
 
-    for class_index, class_name in enumerate(COARSE_CLASS_NAMES):
+    for class_index, class_name in enumerate(label_names):
         tp = matrix[class_index][class_index]
         fn = sum(matrix[class_index]) - tp
         fp = sum(row[class_index] for row in matrix) - tp
@@ -436,8 +517,16 @@ def average(values: object) -> float:
 
 
 def summarize_split(examples: list[ExamplePrediction]) -> dict[str, object]:
+    return summarize_split_for_target(examples, target_label_mode="coarse")
+
+
+def summarize_split_for_target(
+    examples: list[ExamplePrediction],
+    *,
+    target_label_mode: str,
+) -> dict[str, object]:
     if not examples:
-        return {
+        summary = {
             "count": 0,
             "accuracy": 0.0,
             "macro_f1": 0.0,
@@ -447,14 +536,21 @@ def summarize_split(examples: list[ExamplePrediction]) -> dict[str, object]:
             "off_by_one_or_correct_rate": 0.0,
             "severe_ordinal_error_rate": 0.0,
         }
+        if target_label_mode == "score_band":
+            summary["collapsed_coarse_accuracy"] = 0.0
+            summary["collapsed_coarse_macro_f1"] = 0.0
+        return summary
 
-    class_rows = per_class_rows(examples)
+    class_rows = per_label_rows(
+        examples,
+        label_names=get_target_class_names(target_label_mode),
+    )
     correct = sum(1 for example in examples if example.correct)
     off_by_one_or_correct = sum(
         1 for example in examples if example.ordinal_error <= 1
     )
     severe_errors = sum(1 for example in examples if example.ordinal_error >= 2)
-    return {
+    summary = {
         "count": len(examples),
         "accuracy": safe_div(correct, len(examples)),
         "macro_f1": average(row["f1"] for row in class_rows),
@@ -464,6 +560,23 @@ def summarize_split(examples: list[ExamplePrediction]) -> dict[str, object]:
         "off_by_one_or_correct_rate": safe_div(off_by_one_or_correct, len(examples)),
         "severe_ordinal_error_rate": safe_div(severe_errors, len(examples)),
     }
+    if target_label_mode == "score_band":
+        coarse_rows = per_label_rows(
+            examples,
+            label_names=COARSE_CLASS_NAMES,
+            true_attr="true_coarse_class",
+            predicted_attr="predicted_coarse_class",
+        )
+        coarse_correct = sum(
+            1
+            for example in examples
+            if example.true_coarse_class == example.predicted_coarse_class
+        )
+        summary["collapsed_coarse_accuracy"] = safe_div(coarse_correct, len(examples))
+        summary["collapsed_coarse_macro_f1"] = average(
+            row["f1"] for row in coarse_rows
+        )
+    return summary
 
 
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -477,15 +590,20 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer.writerows(rows)
 
 
-def write_confusion_csv(path: Path, matrix: list[list[int]]) -> None:
+def write_confusion_csv(
+    path: Path,
+    matrix: list[list[int]],
+    *,
+    label_names: tuple[str, ...] = COARSE_CLASS_NAMES,
+) -> None:
     rows = []
-    for class_name, row in zip(COARSE_CLASS_NAMES, matrix):
+    for class_name, row in zip(label_names, matrix):
         rows.append(
             {
-                "true_class": class_name,
+                "true_label": class_name,
                 **{
                     f"predicted_{predicted_class}": value
-                    for predicted_class, value in zip(COARSE_CLASS_NAMES, row)
+                    for predicted_class, value in zip(label_names, row)
                 },
             }
         )
@@ -499,8 +617,10 @@ def example_rows(examples: list[ExamplePrediction]) -> list[dict[str, object]]:
             {
                 "split": example.split,
                 "row_index": example.row_index,
-                "true_class": example.true_class,
-                "predicted_class": example.predicted_class,
+                "true_label": example.true_label,
+                "predicted_label": example.predicted_label,
+                "true_coarse_class": example.true_coarse_class,
+                "predicted_coarse_class": example.predicted_coarse_class,
                 "correct": example.correct,
                 "confidence": example.confidence,
                 "true_probability": example.true_probability,
@@ -514,6 +634,10 @@ def example_rows(examples: list[ExamplePrediction]) -> list[dict[str, object]]:
                 "source_image_path": example.source_image_path,
                 **{
                     f"prob_{class_name}": example.probabilities[class_name]
+                    for class_name in example.probabilities
+                },
+                **{
+                    f"coarse_prob_{class_name}": example.coarse_probabilities[class_name]
                     for class_name in COARSE_CLASS_NAMES
                 },
             }
@@ -568,8 +692,8 @@ def write_error_contact_sheet(
         image_y = y + (image_size - image.height) // 2
         sheet.paste(image, (image_x, image_y))
         caption = (
-            f"true: {example.true_class}\n"
-            f"pred: {example.predicted_class}\n"
+            f"true: {example.true_label}\n"
+            f"pred: {example.predicted_label}\n"
             f"conf: {example.confidence:.2f} band: {example.score_band}"
         )
         draw.multiline_text((x, y + image_size + 4), caption, fill="black", spacing=2)
@@ -585,11 +709,34 @@ def write_markdown_report(
     checkpoint_path: Path,
     split_summaries: dict[str, dict[str, object]],
     test_examples: list[ExamplePrediction],
+    target_label_mode: str,
 ) -> None:
-    test_matrix = confusion_matrix(test_examples)
-    test_class_rows = per_class_rows(test_examples)
-    prediction_distribution = Counter(example.predicted_class for example in test_examples)
-    target_distribution = Counter(example.true_class for example in test_examples)
+    target_class_names = get_target_class_names(target_label_mode)
+    test_matrix = confusion_matrix_for_labels(
+        test_examples,
+        label_names=target_class_names,
+    )
+    test_class_rows = per_label_rows(
+        test_examples,
+        label_names=target_class_names,
+    )
+    prediction_distribution = Counter(example.predicted_label for example in test_examples)
+    target_distribution = Counter(example.true_label for example in test_examples)
+    coarse_test_matrix = None
+    coarse_test_class_rows = None
+    if target_label_mode == "score_band":
+        coarse_test_matrix = confusion_matrix_for_labels(
+            test_examples,
+            label_names=COARSE_CLASS_NAMES,
+            true_attr="true_coarse_class",
+            predicted_attr="predicted_coarse_class",
+        )
+        coarse_test_class_rows = per_label_rows(
+            test_examples,
+            label_names=COARSE_CLASS_NAMES,
+            true_attr="true_coarse_class",
+            predicted_attr="predicted_coarse_class",
+        )
     high_conf_wrong = [
         example
         for example in test_examples
@@ -606,44 +753,61 @@ def write_markdown_report(
         "",
         f"- Run directory: `{run_dir}`",
         f"- Checkpoint: `{checkpoint_path}`",
+        f"- Target label mode: `{target_label_mode}`",
         "",
         "## Split Summary",
         "",
-        "| split | count | accuracy | macro F1 | mean confidence | mean true probability | mean ordinal error | off-by-one-or-correct | severe ordinal errors |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
+    if target_label_mode == "score_band":
+        lines.extend(
+            [
+                "| split | count | band accuracy | band macro F1 | mean confidence | mean true probability | mean band error | off-by-one-or-correct | severe band errors | collapsed coarse acc | collapsed coarse macro F1 |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "| split | count | accuracy | macro F1 | mean confidence | mean true probability | mean ordinal error | off-by-one-or-correct | severe ordinal errors |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
     for split_name in ["train", "val", "test"]:
         summary = split_summaries[split_name]
-        lines.append(
-            "| "
-            + " | ".join(
+        row_values = [
+            split_name,
+            str(summary["count"]),
+            fmt(summary["accuracy"]),
+            fmt(summary["macro_f1"]),
+            fmt(summary["mean_confidence"]),
+            fmt(summary["mean_true_probability"]),
+            fmt(summary["mean_ordinal_error"]),
+            fmt(summary["off_by_one_or_correct_rate"]),
+            fmt(summary["severe_ordinal_error_rate"]),
+        ]
+        if target_label_mode == "score_band":
+            row_values.extend(
                 [
-                    split_name,
-                    str(summary["count"]),
-                    fmt(summary["accuracy"]),
-                    fmt(summary["macro_f1"]),
-                    fmt(summary["mean_confidence"]),
-                    fmt(summary["mean_true_probability"]),
-                    fmt(summary["mean_ordinal_error"]),
-                    fmt(summary["off_by_one_or_correct_rate"]),
-                    fmt(summary["severe_ordinal_error_rate"]),
+                    fmt(summary["collapsed_coarse_accuracy"]),
+                    fmt(summary["collapsed_coarse_macro_f1"]),
                 ]
             )
-            + " |"
-        )
+        lines.append("| " + " | ".join(row_values) + " |")
 
     lines.extend(
         [
             "",
             "## Test Confusion Matrix",
             "",
-            "Rows are true classes; columns are predicted classes.",
+            f"Rows are true labels; columns are predicted labels for the `{target_label_mode}` task.",
             "",
-            "| true \\ predicted | intact | minor | moderate | severe |",
-            "| --- | ---: | ---: | ---: | ---: |",
+            "| true \\ predicted | "
+            + " | ".join(target_class_names)
+            + " |",
+            "| --- | " + " | ".join("---:" for _ in target_class_names) + " |",
         ]
     )
-    for class_name, row in zip(COARSE_CLASS_NAMES, test_matrix):
+    for class_name, row in zip(target_class_names, test_matrix):
         lines.append(
             f"| {class_name} | " + " | ".join(str(value) for value in row) + " |"
         )
@@ -651,7 +815,7 @@ def write_markdown_report(
     lines.extend(
         [
             "",
-            "## Test One-vs-Rest Class Metrics",
+            "## Test One-vs-Rest Label Metrics",
             "",
             "| class | support | predicted | TP | FP | TN | FN | precision | recall | specificity | FPR | FNR | F1 |",
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -680,6 +844,54 @@ def write_markdown_report(
             + " |"
         )
 
+    if target_label_mode == "score_band" and coarse_test_matrix is not None and coarse_test_class_rows is not None:
+        lines.extend(
+            [
+                "",
+                "## Collapsed Coarse Confusion Matrix",
+                "",
+                "Rows are true coarse classes; columns are predicted coarse classes.",
+                "",
+                "| true \\ predicted | intact | minor | moderate | severe |",
+                "| --- | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for class_name, row in zip(COARSE_CLASS_NAMES, coarse_test_matrix):
+            lines.append(
+                f"| {class_name} | " + " | ".join(str(value) for value in row) + " |"
+            )
+        lines.extend(
+            [
+                "",
+                "## Collapsed Coarse One-vs-Rest Metrics",
+                "",
+                "| class | support | predicted | TP | FP | TN | FN | precision | recall | specificity | FPR | FNR | F1 |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for row in coarse_test_class_rows:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        str(row["class"]),
+                        str(row["support"]),
+                        str(row["predicted_count"]),
+                        str(row["tp"]),
+                        str(row["fp"]),
+                        str(row["tn"]),
+                        str(row["fn"]),
+                        fmt(row["precision"]),
+                        fmt(row["recall_sensitivity"]),
+                        fmt(row["specificity"]),
+                        fmt(row["false_positive_rate"]),
+                        fmt(row["false_negative_rate"]),
+                        fmt(row["f1"]),
+                    ]
+                )
+                + " |"
+            )
+
     lines.extend(
         [
             "",
@@ -693,8 +905,8 @@ def write_markdown_report(
             "## Main Diagnosis",
             "",
             "- Treat this section as diagnostic evidence, not a pass/fail claim.",
-            "- Compare the prediction distribution against the target distribution to detect class collapse or domain-shift bias.",
-            "- Use the one-vs-rest rows to identify which classes have low recall, low precision, or both.",
+            "- Compare the prediction distribution against the target distribution to detect collapse or domain-shift bias.",
+            "- Use the one-vs-rest rows to identify which labels have low recall, low precision, or both.",
             "- High-confidence wrong predictions are the first examples to inspect visually because they show confident failure modes.",
             "- For synthetic-to-real evaluation, low real-domain accuracy is evidence of domain shift unless a real-trained baseline on the same split proves otherwise.",
             "",
@@ -712,6 +924,15 @@ def write_markdown_report(
             "- `test_high_confidence_errors_contact_sheet.jpg`",
         ]
     )
+    if target_label_mode == "score_band":
+        lines.insert(
+            len(lines) - 1,
+            "- `test_collapsed_coarse_confusion_matrix.csv`",
+        )
+        lines.insert(
+            len(lines) - 1,
+            "- `test_collapsed_coarse_per_class_tp_fp_tn_fn.csv`",
+        )
     output_path.write_text("\n".join(lines) + "\n")
 
 
@@ -737,6 +958,10 @@ def main() -> None:
     )
     image_size = int(run_config.get("image_size", 224))
     random_seed = int(run_config.get("random_seed", 42))
+    target_label_mode = str(run_config.get("target_label_mode", "coarse"))
+    split_label_column, _class_names, _dataset_target_mode = get_target_label_spec(
+        target_label_mode
+    )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     frame = pd.read_csv(manifest_path)
@@ -746,6 +971,7 @@ def main() -> None:
         random_seed,
         row_count=len(frame),
         all_as_test=args.all_as_test,
+        label_column=split_label_column,
         train_fraction=float(run_config.get("train_fraction", 0.6)),
         val_fraction=float(run_config.get("val_fraction", 0.2)),
         test_fraction=float(run_config.get("test_fraction", 0.2)),
@@ -769,7 +995,7 @@ def main() -> None:
         image_size=image_size,
         include_resize=include_resize,
         device=device,
-        target_label_mode=str(run_config.get("target_label_mode", "coarse")),
+        target_label_mode=target_label_mode,
     )
     examples_by_split = {
         split_name: [
@@ -779,7 +1005,10 @@ def main() -> None:
     }
     test_examples = examples_by_split["test"]
     split_summaries = {
-        split_name: summarize_split(split_examples)
+        split_name: summarize_split_for_target(
+            split_examples,
+            target_label_mode=target_label_mode,
+        )
         for split_name, split_examples in examples_by_split.items()
     }
 
@@ -792,11 +1021,18 @@ def main() -> None:
     )
     write_confusion_csv(
         output_dir / "test_confusion_matrix.csv",
-        confusion_matrix(test_examples),
+        confusion_matrix_for_labels(
+            test_examples,
+            label_names=get_target_class_names(target_label_mode),
+        ),
+        label_names=get_target_class_names(target_label_mode),
     )
     write_csv(
         output_dir / "test_per_class_tp_fp_tn_fn.csv",
-        per_class_rows(test_examples),
+        per_label_rows(
+            test_examples,
+            label_names=get_target_class_names(target_label_mode),
+        ),
     )
     write_csv(
         output_dir / "test_prediction_examples.csv",
@@ -822,6 +1058,25 @@ def main() -> None:
         output_dir / "test_feature_slice_metrics.csv",
         feature_slice_rows(frame=frame, examples=test_examples),
     )
+    if target_label_mode == "score_band":
+        write_confusion_csv(
+            output_dir / "test_collapsed_coarse_confusion_matrix.csv",
+            confusion_matrix_for_labels(
+                test_examples,
+                label_names=COARSE_CLASS_NAMES,
+                true_attr="true_coarse_class",
+                predicted_attr="predicted_coarse_class",
+            ),
+        )
+        write_csv(
+            output_dir / "test_collapsed_coarse_per_class_tp_fp_tn_fn.csv",
+            per_label_rows(
+                test_examples,
+                label_names=COARSE_CLASS_NAMES,
+                true_attr="true_coarse_class",
+                predicted_attr="predicted_coarse_class",
+            ),
+        )
     write_error_contact_sheet(
         output_path=output_dir / "test_high_confidence_errors_contact_sheet.jpg",
         examples=test_examples,
@@ -832,6 +1087,7 @@ def main() -> None:
         checkpoint_path=checkpoint_path,
         split_summaries=split_summaries,
         test_examples=test_examples,
+        target_label_mode=target_label_mode,
     )
 
     print(f"Diagnostics written to: {output_dir}")

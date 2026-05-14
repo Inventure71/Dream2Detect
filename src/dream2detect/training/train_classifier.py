@@ -25,6 +25,9 @@ from .dataset import (
 )
 from .metrics import compute_classification_metrics
 from .metrics import compute_classification_metrics_from_predictions
+from .metrics import collapse_score_band_probabilities_to_coarse
+from .metrics import summarize_ordinal_errors
+from .metrics import band_indices_to_coarse_indices
 from .models import build_classifier_model
 from .splits import (
     DEFAULT_METADATA_FAMILY_COLUMNS,
@@ -41,6 +44,12 @@ class EpochResult:
     accuracy: float
     macro_f1: float
     confusion: list[list[int]]
+    mean_band_error: float | None = None
+    within_one_band_accuracy: float | None = None
+    severe_band_error_rate: float | None = None
+    collapsed_coarse_accuracy: float | None = None
+    collapsed_coarse_macro_f1: float | None = None
+    collapsed_coarse_confusion: list[list[int]] | None = None
     per_class: dict[str, dict[str, float | int]] = field(default_factory=dict)
     predicted_class_distribution: dict[str, int] = field(default_factory=dict)
     target_class_distribution: dict[str, int] = field(default_factory=dict)
@@ -55,6 +64,8 @@ class TrainingResult:
     device: str
     used_resize_in_transforms: bool
     output_dir: str | None
+    selection_metric_name: str = "val_macro_f1"
+    best_val_metric: float | None = None
     early_stopped: bool = False
     stopped_epoch: int | None = None
 
@@ -68,20 +79,32 @@ class EarlyStoppingDecision:
 
 
 class EarlyStoppingTracker:
-    def __init__(self, *, patience: int | None, min_delta: float = 0.0) -> None:
+    def __init__(
+        self,
+        *,
+        patience: int | None,
+        min_delta: float = 0.0,
+        mode: str = "max",
+    ) -> None:
         if patience is not None and patience <= 0:
             raise ValueError(f"patience must be positive or None, got {patience}")
         if min_delta < 0:
             raise ValueError(f"min_delta must be non-negative, got {min_delta}")
+        if mode not in {"max", "min"}:
+            raise ValueError(f"mode must be 'max' or 'min', got {mode!r}")
 
         self.patience = patience
         self.min_delta = min_delta
-        self.best_metric = -float("inf")
+        self.mode = mode
+        self.best_metric = -float("inf") if mode == "max" else float("inf")
         self.best_epoch = 0
         self.epochs_without_improvement = 0
 
     def update(self, *, epoch_number: int, metric_value: float) -> EarlyStoppingDecision:
-        is_best = metric_value > self.best_metric + self.min_delta
+        if self.mode == "max":
+            is_best = metric_value > self.best_metric + self.min_delta
+        else:
+            is_best = metric_value < self.best_metric - self.min_delta
         if is_best:
             self.best_metric = metric_value
             self.best_epoch = epoch_number
@@ -116,6 +139,27 @@ def uses_ordinal_coarse_training(target_label_mode: str) -> bool:
     return target_label_mode == "coarse_ordinal"
 
 
+def get_selection_metric_rule(target_label_mode: str) -> tuple[str, str]:
+    if target_label_mode == "score_band":
+        return "val_mean_band_error", "min"
+    return "val_macro_f1", "max"
+
+
+def extract_epoch_selection_metric(
+    result: EpochResult,
+    *,
+    target_label_mode: str,
+) -> float:
+    metric_name, _mode = get_selection_metric_rule(target_label_mode)
+    if metric_name == "val_mean_band_error":
+        if result.mean_band_error is None:
+            raise ValueError(
+                "Score-band selection metric requires mean_band_error to be populated."
+            )
+        return result.mean_band_error
+    return result.macro_f1
+
+
 def build_cumulative_ordinal_targets(
     targets: torch.Tensor,
     *,
@@ -134,12 +178,24 @@ def build_epoch_metric_field_names(class_names: tuple[str, ...]) -> list[str]:
     field_names = [
         "epoch",
         "learning_rate",
+        "selection_metric_name",
+        "val_selection_metric",
         "train_loss",
         "train_accuracy",
         "train_macro_f1",
+        "train_mean_band_error",
+        "train_within_one_band_accuracy",
+        "train_severe_band_error_rate",
+        "train_collapsed_coarse_accuracy",
+        "train_collapsed_coarse_macro_f1",
         "val_loss",
         "val_accuracy",
         "val_macro_f1",
+        "val_mean_band_error",
+        "val_within_one_band_accuracy",
+        "val_severe_band_error_rate",
+        "val_collapsed_coarse_accuracy",
+        "val_collapsed_coarse_macro_f1",
         "is_best",
     ]
     for class_name in class_names:
@@ -405,6 +461,51 @@ def build_class_weights(
     return torch.tensor(weights, dtype=torch.float32, device=device)
 
 
+def build_effective_number_class_weights(
+    frame: pd.DataFrame,
+    *,
+    train_indices: list[int],
+    device: torch.device,
+    label_column: str,
+    class_names: tuple[str, ...],
+    beta: float = 0.999,
+) -> torch.Tensor:
+    if not 0.0 <= beta < 1.0:
+        raise ValueError(f"beta must be in [0.0, 1.0), got {beta}")
+
+    train_frame = subset_frame_by_indices(frame, train_indices)
+    counts_by_class = train_frame[label_column].value_counts().to_dict()
+    counts = torch.tensor(
+        [float(counts_by_class.get(class_name, 0)) for class_name in class_names],
+        dtype=torch.float32,
+        device=device,
+    )
+
+    if beta == 0.0:
+        weights = torch.ones_like(counts)
+    else:
+        effective_counts = torch.zeros_like(counts)
+        positive_mask = counts > 0
+        effective_counts[positive_mask] = (1.0 - beta) / (
+            1.0
+            - torch.pow(
+                torch.full_like(counts[positive_mask], beta),
+                counts[positive_mask],
+            )
+        )
+        weights = effective_counts
+
+    positive_mask = weights > 0
+    if not bool(torch.any(positive_mask)):
+        raise ValueError("Could not build class weights because all class counts are zero.")
+
+    normalized = weights.clone()
+    normalized[positive_mask] = (
+        normalized[positive_mask] / normalized[positive_mask].mean()
+    )
+    return normalized
+
+
 def build_ordinal_pos_weights(
     frame: pd.DataFrame,
     *,
@@ -444,6 +545,27 @@ def build_sample_weights(
         1.0 / float(class_counts[row[label_column]])
         for _, row in train_frame.iterrows()
     ]
+
+
+def build_soft_ordinal_targets(
+    targets: torch.Tensor,
+    *,
+    num_classes: int,
+    sigma: float,
+) -> torch.Tensor:
+    if num_classes < 2:
+        raise ValueError(f"num_classes must be at least 2, got {num_classes}")
+    if sigma <= 0:
+        raise ValueError(f"sigma must be positive, got {sigma}")
+
+    class_positions = torch.arange(
+        num_classes,
+        dtype=torch.float32,
+        device=targets.device,
+    )
+    distances = class_positions.unsqueeze(0) - targets.unsqueeze(1).to(torch.float32)
+    logits = -0.5 * (distances / sigma) ** 2
+    return torch.softmax(logits, dim=1)
 
 
 def build_overfit_indices(
@@ -502,6 +624,7 @@ def run_one_epoch(
     device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     optimizer: torch.optim.Optimizer | None,
+    target_label_mode: str = "coarse",
     class_names: tuple[str, ...] = COARSE_CLASS_NAMES,
     prediction_fn: Callable[[torch.Tensor], torch.Tensor] | None = None,
 ) -> EpochResult:
@@ -555,6 +678,13 @@ def run_one_epoch(
     epoch_loss = total_loss / total_examples
     stacked_logits = torch.cat(all_logits, dim=0)
     stacked_targets = torch.cat(all_targets, dim=0)
+    mean_band_error: float | None = None
+    within_one_band_accuracy: float | None = None
+    severe_band_error_rate: float | None = None
+    collapsed_coarse_accuracy: float | None = None
+    collapsed_coarse_macro_f1: float | None = None
+    collapsed_coarse_confusion: list[list[int]] | None = None
+
     if prediction_fn is None:
         metrics = compute_classification_metrics(
             stacked_logits,
@@ -562,6 +692,32 @@ def run_one_epoch(
             num_classes=len(class_names),
             class_names=class_names,
         )
+        if target_label_mode == "score_band":
+            predictions = torch.argmax(stacked_logits, dim=1)
+            ordinal_summary = summarize_ordinal_errors(predictions, stacked_targets)
+            mean_band_error = float(ordinal_summary["mean_band_error"])
+            within_one_band_accuracy = float(
+                ordinal_summary["within_one_band_accuracy"]
+            )
+            severe_band_error_rate = float(
+                ordinal_summary["severe_band_error_rate"]
+            )
+
+            band_probabilities = torch.softmax(stacked_logits, dim=1)
+            coarse_probabilities = collapse_score_band_probabilities_to_coarse(
+                band_probabilities
+            )
+            coarse_predictions = torch.argmax(coarse_probabilities, dim=1)
+            coarse_targets = band_indices_to_coarse_indices(stacked_targets)
+            coarse_metrics = compute_classification_metrics_from_predictions(
+                coarse_predictions,
+                coarse_targets,
+                num_classes=len(COARSE_CLASS_NAMES),
+                class_names=COARSE_CLASS_NAMES,
+            )
+            collapsed_coarse_accuracy = coarse_metrics.accuracy
+            collapsed_coarse_macro_f1 = coarse_metrics.macro_f1
+            collapsed_coarse_confusion = coarse_metrics.confusion
     else:
         metrics = compute_classification_metrics_from_predictions(
             prediction_fn(stacked_logits),
@@ -575,6 +731,12 @@ def run_one_epoch(
         accuracy=metrics.accuracy,
         macro_f1=metrics.macro_f1,
         confusion=metrics.confusion,
+        mean_band_error=mean_band_error,
+        within_one_band_accuracy=within_one_band_accuracy,
+        severe_band_error_rate=severe_band_error_rate,
+        collapsed_coarse_accuracy=collapsed_coarse_accuracy,
+        collapsed_coarse_macro_f1=collapsed_coarse_macro_f1,
+        collapsed_coarse_confusion=collapsed_coarse_confusion,
         per_class={
             class_name: {
                 "precision": class_metrics.precision,
@@ -595,6 +757,12 @@ def epoch_result_to_dict(result: EpochResult) -> dict[str, object]:
         "accuracy": result.accuracy,
         "macro_f1": result.macro_f1,
         "confusion": result.confusion,
+        "mean_band_error": result.mean_band_error,
+        "within_one_band_accuracy": result.within_one_band_accuracy,
+        "severe_band_error_rate": result.severe_band_error_rate,
+        "collapsed_coarse_accuracy": result.collapsed_coarse_accuracy,
+        "collapsed_coarse_macro_f1": result.collapsed_coarse_macro_f1,
+        "collapsed_coarse_confusion": result.collapsed_coarse_confusion,
         "per_class": result.per_class,
         "predicted_class_distribution": result.predicted_class_distribution,
         "target_class_distribution": result.target_class_distribution,
@@ -607,6 +775,32 @@ def epoch_result_from_dict(payload: dict[str, object]) -> EpochResult:
         accuracy=float(payload["accuracy"]),
         macro_f1=float(payload["macro_f1"]),
         confusion=payload["confusion"],  # type: ignore[arg-type]
+        mean_band_error=(
+            float(payload["mean_band_error"])
+            if payload.get("mean_band_error") is not None
+            else None
+        ),
+        within_one_band_accuracy=(
+            float(payload["within_one_band_accuracy"])
+            if payload.get("within_one_band_accuracy") is not None
+            else None
+        ),
+        severe_band_error_rate=(
+            float(payload["severe_band_error_rate"])
+            if payload.get("severe_band_error_rate") is not None
+            else None
+        ),
+        collapsed_coarse_accuracy=(
+            float(payload["collapsed_coarse_accuracy"])
+            if payload.get("collapsed_coarse_accuracy") is not None
+            else None
+        ),
+        collapsed_coarse_macro_f1=(
+            float(payload["collapsed_coarse_macro_f1"])
+            if payload.get("collapsed_coarse_macro_f1") is not None
+            else None
+        ),
+        collapsed_coarse_confusion=payload.get("collapsed_coarse_confusion"),  # type: ignore[arg-type]
         per_class=payload.get("per_class", {}),  # type: ignore[arg-type]
         predicted_class_distribution=payload.get(  # type: ignore[arg-type]
             "predicted_class_distribution",
@@ -628,6 +822,8 @@ def training_result_to_dict(result: TrainingResult) -> dict[str, object]:
         "device": result.device,
         "used_resize_in_transforms": result.used_resize_in_transforms,
         "output_dir": result.output_dir,
+        "selection_metric_name": result.selection_metric_name,
+        "best_val_metric": result.best_val_metric,
         "early_stopped": result.early_stopped,
         "stopped_epoch": result.stopped_epoch,
     }
@@ -693,6 +889,9 @@ def build_run_config(
     pretrained: bool,
     freeze_backbone: bool,
     ordinal_loss_weight: float,
+    score_band_soft_label_sigma: float,
+    score_band_class_weight_strategy: str,
+    score_band_effective_beta: float,
     target_label_mode: str,
     class_names: tuple[str, ...] | list[str],
     train_fraction: float,
@@ -704,6 +903,9 @@ def build_run_config(
     checkpoint_every_n_epochs: int = 1,
     plot_every_n_epochs: int = 1,
 ) -> dict[str, object]:
+    selection_metric_name, selection_metric_mode = get_selection_metric_rule(
+        target_label_mode
+    )
     return {
         "manifest_path": str(manifest_path),
         "image_size": image_size,
@@ -731,9 +933,14 @@ def build_run_config(
         "pretrained": pretrained,
         "freeze_backbone": freeze_backbone,
         "ordinal_loss_weight": ordinal_loss_weight,
+        "score_band_soft_label_sigma": score_band_soft_label_sigma,
+        "score_band_class_weight_strategy": score_band_class_weight_strategy,
+        "score_band_effective_beta": score_band_effective_beta,
         "target_label_mode": target_label_mode,
         "num_classes": len(class_names),
         "class_names": list(class_names),
+        "selection_metric_name": selection_metric_name,
+        "selection_metric_mode": selection_metric_mode,
         "train_fraction": train_fraction,
         "val_fraction": val_fraction,
         "test_fraction": test_fraction,
@@ -771,16 +978,30 @@ def flatten_epoch_metrics(
     val_metrics: EpochResult,
     is_best: bool,
     learning_rate: float | None = None,
+    selection_metric_name: str = "val_macro_f1",
+    val_selection_metric: float | None = None,
 ) -> dict[str, object]:
     return {
         "epoch": epoch_number,
         "learning_rate": learning_rate,
+        "selection_metric_name": selection_metric_name,
+        "val_selection_metric": val_selection_metric,
         "train_loss": train_metrics.loss,
         "train_accuracy": train_metrics.accuracy,
         "train_macro_f1": train_metrics.macro_f1,
+        "train_mean_band_error": train_metrics.mean_band_error,
+        "train_within_one_band_accuracy": train_metrics.within_one_band_accuracy,
+        "train_severe_band_error_rate": train_metrics.severe_band_error_rate,
+        "train_collapsed_coarse_accuracy": train_metrics.collapsed_coarse_accuracy,
+        "train_collapsed_coarse_macro_f1": train_metrics.collapsed_coarse_macro_f1,
         "val_loss": val_metrics.loss,
         "val_accuracy": val_metrics.accuracy,
         "val_macro_f1": val_metrics.macro_f1,
+        "val_mean_band_error": val_metrics.mean_band_error,
+        "val_within_one_band_accuracy": val_metrics.within_one_band_accuracy,
+        "val_severe_band_error_rate": val_metrics.severe_band_error_rate,
+        "val_collapsed_coarse_accuracy": val_metrics.collapsed_coarse_accuracy,
+        "val_collapsed_coarse_macro_f1": val_metrics.collapsed_coarse_macro_f1,
         "is_best": is_best,
     }
 
@@ -794,6 +1015,8 @@ def append_epoch_metrics(
     is_best: bool,
     learning_rate: float | None = None,
     class_names: tuple[str, ...] = COARSE_CLASS_NAMES,
+    selection_metric_name: str = "val_macro_f1",
+    val_selection_metric: float | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -813,6 +1036,8 @@ def append_epoch_metrics(
         val_metrics=val_metrics,
         is_best=is_best,
         learning_rate=learning_rate,
+        selection_metric_name=selection_metric_name,
+        val_selection_metric=val_selection_metric,
     )
     for class_name in class_names:
         train_class_metrics = train_metrics.per_class.get(class_name, {})
@@ -877,6 +1102,14 @@ def read_epoch_metrics(output_dir: Path) -> list[dict[str, object]]:
                     if row.get("learning_rate") is not None
                     else None
                 ),
+                selection_metric_name=str(
+                    row.get("selection_metric_name", "val_macro_f1")
+                ),
+                val_selection_metric=(
+                    float(row["val_selection_metric"])
+                    if row.get("val_selection_metric") is not None
+                    else None
+                ),
             )
         )
     return history
@@ -900,12 +1133,17 @@ def plot_epoch_metrics(
 
     epochs = [int(row["epoch"]) for row in history]
 
-    figure, axes = plt.subplots(3, 1, figsize=(9, 10), sharex=True)
     series = [
         ("Loss", "train_loss", "val_loss"),
         ("Accuracy", "train_accuracy", "val_accuracy"),
         ("Macro F1", "train_macro_f1", "val_macro_f1"),
     ]
+    if any(row.get("val_mean_band_error") is not None for row in history):
+        series.append(("Mean Band Error", "train_mean_band_error", "val_mean_band_error"))
+
+    figure, axes = plt.subplots(len(series), 1, figsize=(9, 3.3 * len(series)), sharex=True)
+    if len(series) == 1:
+        axes = [axes]
 
     for axis, (title, train_key, val_key) in zip(axes, series, strict=True):
         axis.plot(
@@ -1089,6 +1327,7 @@ def build_lr_scheduler(
     *,
     optimizer: torch.optim.Optimizer,
     lr_scheduler_name: str,
+    selection_metric_mode: str,
     lr_scheduler_factor: float,
     lr_scheduler_patience: int,
     min_learning_rate: float,
@@ -1112,7 +1351,7 @@ def build_lr_scheduler(
 
     return torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
-        mode="max",
+        mode=selection_metric_mode,
         factor=lr_scheduler_factor,
         patience=lr_scheduler_patience,
         min_lr=min_learning_rate,
@@ -1144,6 +1383,58 @@ def build_classification_loss(
         loss = cross_entropy(logits, targets)
         if ordinal_loss_weight == 0:
             return loss
+        probabilities = torch.softmax(logits, dim=1)
+        expected_class_index = (probabilities * class_positions).sum(dim=1)
+        ordinal_loss = F.smooth_l1_loss(
+            expected_class_index,
+            targets.float(),
+        )
+        return loss + ordinal_loss_weight * ordinal_loss
+
+    return loss_fn
+
+
+def build_score_band_soft_label_loss(
+    *,
+    class_weights: torch.Tensor,
+    use_balanced_sampler: bool,
+    ordinal_loss_weight: float,
+    device: torch.device,
+    num_classes: int,
+    soft_label_sigma: float,
+) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
+    if ordinal_loss_weight < 0:
+        raise ValueError(
+            f"ordinal_loss_weight must be non-negative, got {ordinal_loss_weight}"
+        )
+    if soft_label_sigma <= 0:
+        raise ValueError(
+            f"soft_label_sigma must be positive, got {soft_label_sigma}"
+        )
+
+    class_positions = torch.arange(num_classes, dtype=torch.float32, device=device)
+
+    def loss_fn(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        soft_targets = build_soft_ordinal_targets(
+            targets,
+            num_classes=num_classes,
+            sigma=soft_label_sigma,
+        )
+        if use_balanced_sampler:
+            weighted_targets = soft_targets
+        else:
+            weighted_targets = soft_targets * class_weights.unsqueeze(0)
+            weighted_targets = weighted_targets / weighted_targets.sum(
+                dim=1,
+                keepdim=True,
+            ).clamp_min(1e-8)
+
+        log_probabilities = F.log_softmax(logits, dim=1)
+        loss = -(weighted_targets * log_probabilities).sum(dim=1).mean()
+
+        if ordinal_loss_weight == 0:
+            return loss
+
         probabilities = torch.softmax(logits, dim=1)
         expected_class_index = (probabilities * class_positions).sum(dim=1)
         ordinal_loss = F.smooth_l1_loss(
@@ -1224,7 +1515,7 @@ def train_synthetic_classifier(
     random_seed: int = 42,
     output_dir: str | Path | None = None,
     resume_from: str | Path | None = None,
-    use_balanced_sampler: bool = True,
+    use_balanced_sampler: bool | None = None,
     weight_decay: float = 1e-4,
     dropout_p: float = 0.1,
     early_stopping_patience: int | None = None,
@@ -1236,6 +1527,9 @@ def train_synthetic_classifier(
     pretrained: bool = False,
     freeze_backbone: bool = False,
     ordinal_loss_weight: float = 0.0,
+    score_band_soft_label_sigma: float = 1.0,
+    score_band_class_weight_strategy: str = "effective",
+    score_band_effective_beta: float = 0.999,
     target_label_mode: str = "coarse",
     train_fraction: float = 0.6,
     val_fraction: float = 0.2,
@@ -1273,6 +1567,21 @@ def train_synthetic_classifier(
         raise ValueError(
             f"ordinal_loss_weight must be non-negative, got {ordinal_loss_weight}"
         )
+    if score_band_soft_label_sigma <= 0:
+        raise ValueError(
+            "score_band_soft_label_sigma must be positive, "
+            f"got {score_band_soft_label_sigma}"
+        )
+    if score_band_class_weight_strategy not in {"balanced", "effective"}:
+        raise ValueError(
+            "score_band_class_weight_strategy must be 'balanced' or 'effective', "
+            f"got {score_band_class_weight_strategy!r}"
+        )
+    if not 0.0 <= score_band_effective_beta < 1.0:
+        raise ValueError(
+            "score_band_effective_beta must be in [0.0, 1.0), "
+            f"got {score_band_effective_beta}"
+        )
     if checkpoint_every_n_epochs <= 0:
         raise ValueError(
             "checkpoint_every_n_epochs must be positive, "
@@ -1299,6 +1608,13 @@ def train_synthetic_classifier(
     label_column, class_names, _dataset_target_mode = get_target_label_spec(
         target_label_mode
     )
+    if use_balanced_sampler is None:
+        resolved_use_balanced_sampler = target_label_mode != "score_band"
+    else:
+        resolved_use_balanced_sampler = use_balanced_sampler
+    selection_metric_name, selection_metric_mode = get_selection_metric_rule(
+        target_label_mode
+    )
     output_dim = model_output_dim_for_target_mode(
         target_label_mode,
         num_classes=len(class_names),
@@ -1309,7 +1625,7 @@ def train_synthetic_classifier(
         image_size=image_size,
         batch_size=batch_size,
         random_seed=random_seed,
-        use_balanced_sampler=use_balanced_sampler,
+        use_balanced_sampler=resolved_use_balanced_sampler,
         overfit_subset_size=overfit_subset_size,
         use_augmentation=use_augmentation,
         augmentation_profile=augmentation_profile,
@@ -1335,7 +1651,7 @@ def train_synthetic_classifier(
         random_seed=random_seed,
         device=device,
         include_resize=include_resize,
-        use_balanced_sampler=use_balanced_sampler,
+        use_balanced_sampler=resolved_use_balanced_sampler,
         weight_decay=weight_decay,
         dropout_p=dropout_p,
         early_stopping_patience=early_stopping_patience,
@@ -1347,6 +1663,9 @@ def train_synthetic_classifier(
         pretrained=pretrained,
         freeze_backbone=freeze_backbone,
         ordinal_loss_weight=ordinal_loss_weight,
+        score_band_soft_label_sigma=score_band_soft_label_sigma,
+        score_band_class_weight_strategy=score_band_class_weight_strategy,
+        score_band_effective_beta=score_band_effective_beta,
         target_label_mode=target_label_mode,
         class_names=class_names,
         train_fraction=train_fraction,
@@ -1401,20 +1720,47 @@ def train_synthetic_classifier(
         )
         prediction_fn = decode_cumulative_ordinal_logits
     else:
-        class_weights = build_class_weights(
-            frame,
-            train_indices=split.train_indices,
-            device=device,
-            label_column=label_column,
-            class_names=class_names,
-        )
-        loss_fn = build_classification_loss(
-            class_weights=class_weights,
-            use_balanced_sampler=use_balanced_sampler,
-            ordinal_loss_weight=ordinal_loss_weight,
-            device=device,
-            num_classes=len(class_names),
-        )
+        if target_label_mode == "score_band":
+            if score_band_class_weight_strategy == "effective":
+                class_weights = build_effective_number_class_weights(
+                    frame,
+                    train_indices=split.train_indices,
+                    device=device,
+                    label_column=label_column,
+                    class_names=class_names,
+                    beta=score_band_effective_beta,
+                )
+            else:
+                class_weights = build_class_weights(
+                    frame,
+                    train_indices=split.train_indices,
+                    device=device,
+                    label_column=label_column,
+                    class_names=class_names,
+                )
+            loss_fn = build_score_band_soft_label_loss(
+                class_weights=class_weights,
+                use_balanced_sampler=resolved_use_balanced_sampler,
+                ordinal_loss_weight=ordinal_loss_weight,
+                device=device,
+                num_classes=len(class_names),
+                soft_label_sigma=score_band_soft_label_sigma,
+            )
+        else:
+            class_weights = build_class_weights(
+                frame,
+                train_indices=split.train_indices,
+                device=device,
+                label_column=label_column,
+                class_names=class_names,
+            )
+            loss_fn = build_classification_loss(
+                class_weights=class_weights,
+                use_balanced_sampler=resolved_use_balanced_sampler,
+                ordinal_loss_weight=ordinal_loss_weight,
+                device=device,
+                num_classes=len(class_names),
+            )
     optimizer = build_optimizer(
         model=model,
         optimizer_name=optimizer_name,
@@ -1424,6 +1770,7 @@ def train_synthetic_classifier(
     lr_scheduler = build_lr_scheduler(
         optimizer=optimizer,
         lr_scheduler_name=lr_scheduler_name,
+        selection_metric_mode=selection_metric_mode,
         lr_scheduler_factor=lr_scheduler_factor,
         lr_scheduler_patience=lr_scheduler_patience,
         min_learning_rate=min_learning_rate,
@@ -1432,7 +1779,7 @@ def train_synthetic_classifier(
     train_history: list[EpochResult] = []
     val_history: list[EpochResult] = []
 
-    best_val_f1 = -1.0
+    best_val_f1 = -float("inf") if selection_metric_mode == "max" else float("inf")
     best_val_epoch = 1
     best_state_dict = copy.deepcopy(model.state_dict())
     start_epoch = 1
@@ -1440,6 +1787,7 @@ def train_synthetic_classifier(
     early_stopping = EarlyStoppingTracker(
         patience=early_stopping_patience,
         min_delta=early_stopping_min_delta,
+        mode=selection_metric_mode,
     )
     early_stopped = False
     stopped_epoch: int | None = None
@@ -1470,27 +1818,64 @@ def train_synthetic_classifier(
             ]
             for row in epoch_metric_history:
                 train_history.append(
-                    EpochResult(
-                        loss=float(row["train_loss"]),
-                        accuracy=float(row["train_accuracy"]),
-                        macro_f1=float(row["train_macro_f1"]),
-                        confusion=[],
+                    epoch_result_from_dict(
+                        {
+                            "loss": row["train_loss"],
+                            "accuracy": row["train_accuracy"],
+                            "macro_f1": row["train_macro_f1"],
+                            "confusion": [],
+                            "mean_band_error": row.get("train_mean_band_error"),
+                            "within_one_band_accuracy": row.get(
+                                "train_within_one_band_accuracy"
+                            ),
+                            "severe_band_error_rate": row.get(
+                                "train_severe_band_error_rate"
+                            ),
+                            "collapsed_coarse_accuracy": row.get(
+                                "train_collapsed_coarse_accuracy"
+                            ),
+                            "collapsed_coarse_macro_f1": row.get(
+                                "train_collapsed_coarse_macro_f1"
+                            ),
+                        }
                     )
                 )
                 val_history.append(
-                    EpochResult(
-                        loss=float(row["val_loss"]),
-                        accuracy=float(row["val_accuracy"]),
-                        macro_f1=float(row["val_macro_f1"]),
-                        confusion=[],
+                    epoch_result_from_dict(
+                        {
+                            "loss": row["val_loss"],
+                            "accuracy": row["val_accuracy"],
+                            "macro_f1": row["val_macro_f1"],
+                            "confusion": [],
+                            "mean_band_error": row.get("val_mean_band_error"),
+                            "within_one_band_accuracy": row.get(
+                                "val_within_one_band_accuracy"
+                            ),
+                            "severe_band_error_rate": row.get(
+                                "val_severe_band_error_rate"
+                            ),
+                            "collapsed_coarse_accuracy": row.get(
+                                "val_collapsed_coarse_accuracy"
+                            ),
+                            "collapsed_coarse_macro_f1": row.get(
+                                "val_collapsed_coarse_macro_f1"
+                            ),
+                        }
                     )
                 )
+                historical_metric = row.get("val_selection_metric")
                 decision = early_stopping.update(
                     epoch_number=int(row["epoch"]),
-                    metric_value=float(row["val_macro_f1"]),
+                    metric_value=float(
+                        historical_metric
+                        if historical_metric is not None
+                        else row["val_macro_f1"]
+                    ),
                 )
                 if decision.is_best:
-                    best_val_f1 = float(row["val_macro_f1"])
+                    best_val_f1 = float(
+                        row.get("val_selection_metric", row["val_macro_f1"])
+                    )
                     best_val_epoch = int(row["epoch"])
 
             best_checkpoint_path = normalized_output_dir / "checkpoints/best.pt"
@@ -1506,6 +1891,7 @@ def train_synthetic_classifier(
             device=device,
             loss_fn=loss_fn,
             optimizer=optimizer,
+            target_label_mode=target_label_mode,
             class_names=class_names,
             prediction_fn=prediction_fn,
         )
@@ -1515,6 +1901,7 @@ def train_synthetic_classifier(
             device=device,
             loss_fn=loss_fn,
             optimizer=None,
+            target_label_mode=target_label_mode,
             class_names=class_names,
             prediction_fn=prediction_fn,
         )
@@ -1522,18 +1909,22 @@ def train_synthetic_classifier(
         train_history.append(train_metrics)
         val_history.append(val_metrics)
 
+        selection_metric_value = extract_epoch_selection_metric(
+            val_metrics,
+            target_label_mode=target_label_mode,
+        )
         decision = early_stopping.update(
             epoch_number=epoch_number,
-            metric_value=val_metrics.macro_f1,
+            metric_value=selection_metric_value,
         )
         is_best = decision.is_best
         if is_best:
-            best_val_f1 = val_metrics.macro_f1
+            best_val_f1 = selection_metric_value
             best_val_epoch = epoch_number
             best_state_dict = copy.deepcopy(model.state_dict())
 
         if lr_scheduler is not None:
-            lr_scheduler.step(val_metrics.macro_f1)
+            lr_scheduler.step(selection_metric_value)
         current_learning_rate = get_current_learning_rate(optimizer)
 
         if normalized_output_dir is not None:
@@ -1545,6 +1936,8 @@ def train_synthetic_classifier(
                 is_best=is_best,
                 learning_rate=current_learning_rate,
                 class_names=class_names,
+                selection_metric_name=selection_metric_name,
+                val_selection_metric=selection_metric_value,
             )
             epoch_metric_history.append(flat_metrics)
             if is_best or epoch_number % checkpoint_every_n_epochs == 0:
@@ -1578,6 +1971,7 @@ def train_synthetic_classifier(
             f"val_loss={val_metrics.loss:.4f} "
             f"val_acc={val_metrics.accuracy:.4f} "
             f"val_f1={val_metrics.macro_f1:.4f} "
+            f"{selection_metric_name}={selection_metric_value:.4f} "
             f"lr={current_learning_rate:.6g}",
             flush=True,
         )
@@ -1588,7 +1982,7 @@ def train_synthetic_classifier(
             print(
                 f"Early stopping at epoch {epoch_number}; "
                 f"best_val_epoch={best_val_epoch} "
-                f"best_val_f1={best_val_f1:.4f}",
+                f"{selection_metric_name}={best_val_f1:.4f}",
                 flush=True,
             )
             break
@@ -1601,6 +1995,7 @@ def train_synthetic_classifier(
         device=device,
         loss_fn=loss_fn,
         optimizer=None,
+        target_label_mode=target_label_mode,
         class_names=class_names,
         prediction_fn=prediction_fn,
     )
@@ -1613,6 +2008,8 @@ def train_synthetic_classifier(
         device=str(device),
         used_resize_in_transforms=include_resize,
         output_dir=str(normalized_output_dir) if normalized_output_dir is not None else None,
+        selection_metric_name=selection_metric_name,
+        best_val_metric=best_val_f1,
         early_stopped=early_stopped,
         stopped_epoch=stopped_epoch,
     )
@@ -1635,12 +2032,25 @@ def train_synthetic_classifier(
         )
 
     print(f"\nBest validation epoch: {best_val_epoch}")
+    print(f"Selection metric ({selection_metric_name}): {best_val_f1:.4f}")
     print(
         f"Test | "
         f"loss={test_metrics.loss:.4f} "
         f"acc={test_metrics.accuracy:.4f} "
         f"macro_f1={test_metrics.macro_f1:.4f}"
     )
+    if target_label_mode == "score_band":
+        print(
+            "Test score-band summary | "
+            f"mean_band_error={test_metrics.mean_band_error:.4f} "
+            f"within_one={test_metrics.within_one_band_accuracy:.4f} "
+            f"severe_error_rate={test_metrics.severe_band_error_rate:.4f}"
+        )
+        print(
+            "Collapsed coarse | "
+            f"acc={test_metrics.collapsed_coarse_accuracy:.4f} "
+            f"macro_f1={test_metrics.collapsed_coarse_macro_f1:.4f}"
+        )
     print("Test confusion matrix:")
     for row in test_metrics.confusion:
         print(row)

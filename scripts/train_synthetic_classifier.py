@@ -38,7 +38,7 @@ def build_default_output_dir(manifest_path: Path, image_size: int) -> Path:
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Train the first Dream2Detect synthetic coarse classifier."
+        description="Train a Dream2Detect synthetic classifier."
     )
 
     parser.add_argument(
@@ -105,7 +105,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--lr-scheduler-patience",
         type=int,
         default=10,
-        help="Validation macro-F1 plateau patience before reducing LR.",
+        help="Validation selection-metric plateau patience before reducing LR.",
     )
     parser.add_argument(
         "--min-learning-rate",
@@ -174,9 +174,33 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Fraction of rows held out for testing.",
     )
     parser.add_argument(
+        "--balanced-sampler-mode",
+        choices=["auto", "on", "off"],
+        default="auto",
+        help="Training sampler policy. auto keeps the old coarse default but disables the sampler for score-band runs.",
+    )
+    parser.add_argument(
         "--no-balanced-sampler",
         action="store_true",
-        help="Disable inverse-frequency class sampling for the training split.",
+        help="Deprecated alias for --balanced-sampler-mode off.",
+    )
+    parser.add_argument(
+        "--score-band-soft-label-sigma",
+        type=float,
+        default=1.0,
+        help="Gaussian sigma for soft ordinal score-band targets.",
+    )
+    parser.add_argument(
+        "--score-band-class-weight-strategy",
+        choices=["balanced", "effective"],
+        default="effective",
+        help="Score-band class weighting strategy when training without the balanced sampler.",
+    )
+    parser.add_argument(
+        "--score-band-effective-beta",
+        type=float,
+        default=0.999,
+        help="Effective-number beta used when score-band class weighting is set to effective.",
     )
     parser.add_argument(
         "--no-augmentation",
@@ -273,7 +297,7 @@ def main() -> None:
     else:
         output_dir = build_default_output_dir(manifest_path, args.image_size).resolve()
 
-    print("Starting Dream2Detect synthetic coarse-classifier training")
+    print("Starting Dream2Detect synthetic classifier training")
     print(f"Manifest: {manifest_path}")
     print(f"Image size: {args.image_size}")
     print(f"Batch size: {args.batch_size}")
@@ -300,7 +324,15 @@ def main() -> None:
     print(f"Split strategy: {args.split_strategy}")
     if args.split_group_column is not None:
         print(f"Split group column: {args.split_group_column}")
-    print(f"Balanced sampler: {not args.no_balanced_sampler}")
+    if args.no_balanced_sampler and args.balanced_sampler_mode != "auto":
+        raise ValueError(
+            "Use either --no-balanced-sampler or --balanced-sampler-mode, not both."
+        )
+    if args.no_balanced_sampler:
+        balanced_sampler_mode = "off"
+    else:
+        balanced_sampler_mode = args.balanced_sampler_mode
+    print(f"Balanced sampler mode: {balanced_sampler_mode}")
     print(f"Augmentation: {not args.no_augmentation}")
     if not args.no_augmentation:
         print(f"Augmentation profile: {args.augmentation_profile}")
@@ -309,6 +341,13 @@ def main() -> None:
     print(f"Freeze backbone: {args.freeze_backbone}")
     print(f"Ordinal loss weight: {args.ordinal_loss_weight}")
     print(f"Target label mode: {args.target_label_mode}")
+    if args.target_label_mode == "score_band":
+        print(f"Score-band soft-label sigma: {args.score_band_soft_label_sigma}")
+        print(
+            "Score-band class weighting: "
+            f"{args.score_band_class_weight_strategy} "
+            f"(beta={args.score_band_effective_beta})"
+        )
     print(f"Checkpoint every N epochs: {args.checkpoint_every_n_epochs}")
     print(f"Plot every N epochs: {args.plot_every_n_epochs}")
     if args.early_stopping_patience is not None:
@@ -342,7 +381,11 @@ def main() -> None:
         random_seed=args.random_seed,
         output_dir=output_dir,
         resume_from=args.resume_from.resolve() if args.resume_from is not None else None,
-        use_balanced_sampler=not args.no_balanced_sampler,
+        use_balanced_sampler=(
+            None
+            if balanced_sampler_mode == "auto"
+            else balanced_sampler_mode == "on"
+        ),
         early_stopping_patience=args.early_stopping_patience,
         early_stopping_min_delta=args.early_stopping_min_delta,
         overfit_subset_size=args.overfit_subset_size,
@@ -352,6 +395,9 @@ def main() -> None:
         pretrained=args.pretrained,
         freeze_backbone=args.freeze_backbone,
         ordinal_loss_weight=args.ordinal_loss_weight,
+        score_band_soft_label_sigma=args.score_band_soft_label_sigma,
+        score_band_class_weight_strategy=args.score_band_class_weight_strategy,
+        score_band_effective_beta=args.score_band_effective_beta,
         target_label_mode=args.target_label_mode,
         train_fraction=args.train_fraction,
         val_fraction=args.val_fraction,
@@ -375,6 +421,17 @@ def main() -> None:
     print(f"Used resize in transforms: {result.used_resize_in_transforms}")
     print(f"Final test accuracy: {result.test_metrics.accuracy:.4f}")
     print(f"Final test macro F1: {result.test_metrics.macro_f1:.4f}")
+    print(f"Selection metric: {result.selection_metric_name}={result.best_val_metric:.4f}")
+    if args.target_label_mode == "score_band":
+        print(f"Final test mean band error: {result.test_metrics.mean_band_error:.4f}")
+        print(
+            "Final test +/-1 band accuracy: "
+            f"{result.test_metrics.within_one_band_accuracy:.4f}"
+        )
+        print(
+            "Collapsed 4-class test macro F1: "
+            f"{result.test_metrics.collapsed_coarse_macro_f1:.4f}"
+        )
     print(f"Artifacts written to: {output_dir}")
     print(f"Epoch metrics CSV: {output_dir / 'epoch_metrics.csv'}")
     print(f"Training curves: {output_dir / 'training_curves.png'}")

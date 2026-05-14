@@ -69,6 +69,18 @@ INDEX_TO_COARSE_CLASS: dict[int, CoarseLabel] = {
     2: "moderate",
     3: "severe",
 }
+SCORE_BAND_TO_COARSE_INDEX = {
+    0: 0,
+    1: 1,
+    2: 1,
+    3: 1,
+    4: 2,
+    5: 2,
+    6: 2,
+    7: 3,
+    8: 3,
+    9: 3,
+}
 
 
 class AddGaussianNoise:

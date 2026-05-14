@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import torch
 from sklearn.metrics import confusion_matrix, f1_score, precision_recall_fscore_support
 
+from .dataset import SCORE_BAND_TO_COARSE_INDEX
+
 
 @dataclass(frozen=True)
 class PerClassMetrics:
@@ -227,3 +229,60 @@ def compute_classification_metrics_from_predictions(
             class_names=normalized_names,
         ),
     )
+
+
+def summarize_ordinal_errors(
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+) -> dict[str, float | int]:
+    if len(predictions) != len(targets):
+        raise ValueError("Predictions and targets must have the same length.")
+    if len(targets) == 0:
+        raise ValueError("Cannot summarize ordinal errors on zero examples.")
+
+    distances = (predictions.to(torch.long) - targets.to(torch.long)).abs()
+    total = int(distances.numel())
+
+    return {
+        "total": total,
+        "exact_accuracy": float((distances == 0).to(torch.float32).mean().item()),
+        "within_one_band_accuracy": float(
+            (distances <= 1).to(torch.float32).mean().item()
+        ),
+        "mean_band_error": float(distances.to(torch.float32).mean().item()),
+        "severe_band_error_rate": float(
+            (distances >= 2).to(torch.float32).mean().item()
+        ),
+    }
+
+
+def band_indices_to_coarse_indices(band_indices: torch.Tensor) -> torch.Tensor:
+    mapping = torch.tensor(
+        [SCORE_BAND_TO_COARSE_INDEX[index] for index in range(len(SCORE_BAND_TO_COARSE_INDEX))],
+        dtype=torch.long,
+        device=band_indices.device,
+    )
+    return mapping[band_indices.to(torch.long)]
+
+
+def collapse_score_band_probabilities_to_coarse(
+    probabilities: torch.Tensor,
+) -> torch.Tensor:
+    if probabilities.ndim != 2:
+        raise ValueError(
+            f"Expected [batch, num_bands] probabilities, got shape {tuple(probabilities.shape)}."
+        )
+    if probabilities.size(1) != len(SCORE_BAND_TO_COARSE_INDEX):
+        raise ValueError(
+            "collapse_score_band_probabilities_to_coarse expects 10 score-band probabilities."
+        )
+
+    collapsed = torch.zeros(
+        probabilities.size(0),
+        4,
+        dtype=probabilities.dtype,
+        device=probabilities.device,
+    )
+    for band_index, coarse_index in SCORE_BAND_TO_COARSE_INDEX.items():
+        collapsed[:, coarse_index] += probabilities[:, band_index]
+    return collapsed

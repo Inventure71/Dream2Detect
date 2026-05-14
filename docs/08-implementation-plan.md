@@ -330,3 +330,32 @@ The frozen coarse implementation/reference before this shift is:
 The phase-specific plan is:
 
 - [19-score-band-target-plan.md](/Users/inventure71/VSProjects/School/Dream2Detect/docs/19-score-band-target-plan.md)
+
+Current V4 implementation direction:
+
+- from-scratch `residual_cnn`
+- `metadata_family_holdout`
+- `damage_safe` augmentation
+- soft ordinal targets across neighboring score bands
+- effective-number class-balanced loss
+- validation mean band error as the primary checkpoint-selection metric
+- collapsed coarse evaluation from summed score-band probabilities
+- score-band-aware analyzer outputs and ranked grid summaries
+
+Latest V4.1 challenger result:
+
+- the first narrow challenger sweep is complete
+- `sigma=1.25` beat the current baseline on validation mean band error
+- but it did not clearly improve held-out test ordinal behavior
+- therefore the baseline is not replaced yet
+- the next score-band decision is a two-way seed confirmation:
+  baseline `sigma=1.0` versus challenger `sigma=1.25`
+
+Two-seed confirmation update:
+
+- `sigma=1.25` also beat the baseline on validation mean band error in the
+  second seed
+- but the two-seed average test behavior remained slightly worse
+- therefore the baseline still stays locked
+- the next score-band tuning pass should search narrowly between `sigma=1.0`
+  and `sigma=1.25`

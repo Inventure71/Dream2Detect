@@ -2448,7 +2448,7 @@ code path before score-band-target work continues:
 From this point forward:
 
 - primary training target: `score_band`
-- primary checkpoint-selection metric: 10-band validation macro F1
+- primary checkpoint-selection metric: 10-band validation mean band error
 - four-class evaluation: secondary diagnostic view only
 
 Collapsed four-class evaluation will still be reported, but the main model is
@@ -2465,3 +2465,342 @@ The target-shift plan is recorded in:
 This does not erase the coarse work. It makes the coarse system the stable
 reference implementation while the next phase tests whether finer supervision at
 the official ten-band level yields a better severity model.
+
+## Milestone 38: Score-Band V4 Ordinal Soft-Label Training Implemented
+
+### Outcome
+
+The score-band training path now matches the intended ordinal problem more
+closely. The new V4 implementation keeps the model from scratch, but changes
+the target handling, class balancing, and checkpoint selection logic.
+
+### What Changed
+
+Implemented in:
+
+- [src/dream2detect/training/train_classifier.py](/Users/inventure71/VSProjects/School/Dream2Detect/src/dream2detect/training/train_classifier.py)
+- [src/dream2detect/training/metrics.py](/Users/inventure71/VSProjects/School/Dream2Detect/src/dream2detect/training/metrics.py)
+- [src/dream2detect/training/dataset.py](/Users/inventure71/VSProjects/School/Dream2Detect/src/dream2detect/training/dataset.py)
+- [scripts/train_synthetic_classifier.py](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/train_synthetic_classifier.py)
+
+New score-band V4 rules:
+
+- soft ordinal targets across the 10 score bands
+- effective-number class-balanced weighting by default for score-band runs
+- automatic sampler policy:
+  - coarse defaults stay unchanged
+  - score-band defaults to no balanced sampler unless explicitly forced
+- primary validation selector:
+  - `val_mean_band_error`
+- secondary diagnostics still reported:
+  - exact 10-band accuracy
+  - 10-band macro F1
+  - `±1` band accuracy
+  - severe band-error rate
+  - collapsed 4-class accuracy and macro F1
+
+Collapsed coarse evaluation now uses the probability-preserving rule:
+
+- sum 10-band probabilities inside each coarse group
+- choose the coarse class from the grouped probabilities
+
+### Verification
+
+Targeted verification passed:
+
+- `python3 -m py_compile scripts/train_synthetic_classifier.py src/dream2detect/training/train_classifier.py src/dream2detect/training/metrics.py src/dream2detect/training/dataset.py tests/test_training_controls.py tests/test_training_artifacts.py`
+- `PYTHONPATH=src python3 -m pytest -q tests/test_training_controls.py tests/test_training_artifacts.py tests/test_multitask_training.py tests/test_analyze_classifier_checkpoint.py`
+- result: `36 passed`
+
+Smoke run artifact:
+
+- [v4_score_band_smoke_20260514](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_score_band_smoke_20260514)
+
+Smoke run result:
+
+- target mode: `score_band`
+- device: `mps`
+- selection metric: `val_mean_band_error`
+- checkpoints written each epoch
+- epoch metrics CSV and graphs written successfully
+
+This was only a two-epoch overfit-subset smoke test, so its metric values are
+not meaningful as model-quality evidence. Its purpose was only to prove that the
+new V4 path executes end to end and emits the expected artifacts.
+
+## Milestone 39: Score-Band Analyzer And Grid Workflow Aligned
+
+### Outcome
+
+The surrounding training workflow now matches the V4 score-band target. The
+checkpoint analyzer and experiment-grid summary layer no longer assume a coarse
+4-class primary task.
+
+### What Changed
+
+Updated:
+
+- [scripts/analyze_classifier_checkpoint.py](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/analyze_classifier_checkpoint.py)
+- [scripts/run_classifier_experiment_grid.py](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/run_classifier_experiment_grid.py)
+
+Analyzer changes:
+
+- score-band checkpoints now load with the correct 10-band output dimension
+- diagnostics now report the primary task according to `target_label_mode`
+- score-band runs now emit both:
+  - 10-band primary diagnostics
+  - collapsed coarse diagnostics
+
+New score-band analyzer artifacts include:
+
+- `test_collapsed_coarse_confusion_matrix.csv`
+- `test_collapsed_coarse_per_class_tp_fp_tn_fn.csv`
+
+Grid changes:
+
+- score-band grids now preserve the V4 trainer defaults through
+  `--balanced-sampler-mode auto`
+- summary rows now record:
+  - `selection_metric_name`
+  - `best_val_metric`
+  - score-band test error metrics
+  - collapsed coarse test metrics
+- ranked grid output is now written to:
+  - `grid_summary_ranked.csv`
+
+### Verification
+
+Targeted verification passed:
+
+- `python3 -m py_compile scripts/analyze_classifier_checkpoint.py scripts/run_classifier_experiment_grid.py tests/test_analyze_classifier_checkpoint.py tests/test_experiment_grid.py`
+- `PYTHONPATH=src python3 -m pytest -q tests/test_analyze_classifier_checkpoint.py tests/test_experiment_grid.py tests/test_training_controls.py tests/test_training_artifacts.py tests/test_multitask_training.py`
+- result: `44 passed`
+
+Live workflow checks:
+
+- analyzer on score-band smoke run:
+  [v4_score_band_smoke_20260514/diagnostics](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_score_band_smoke_20260514/diagnostics)
+- grid smoke outputs:
+  [v4_score_band_grid_smoke_20260514](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_score_band_grid_smoke_20260514)
+
+Important bug fix during verification:
+
+- the analyzer originally rebuilt score-band splits using `training_coarse_class`
+  instead of `training_score_band`
+- this produced mismatched replay metrics
+- the analyzer now uses the same split label column as training, and replayed
+  diagnostics match the trainer's recorded test metrics
+
+This means the codebase is now consistent across:
+
+- training
+- checkpoint diagnostics
+- experiment-grid summaries
+
+## Milestone 40: First Full V4 Score-Band Baseline Trained
+
+### Outcome
+
+The first full V4 score-band baseline run completed successfully on the
+`384 x 384` synthetic dataset under the `metadata_family_holdout` split.
+
+Run artifact:
+
+- [synthetic_full_qc_plus_v2_scale_processed_384_384_20260514_192919](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/synthetic_full_qc_plus_v2_scale_processed_384_384_20260514_192919)
+- diagnostics:
+  [diagnostics](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/synthetic_full_qc_plus_v2_scale_processed_384_384_20260514_192919/diagnostics)
+
+### Configuration
+
+- model: `residual_cnn`
+- target: `score_band`
+- image size: `384`
+- augmentation: `damage_safe`
+- ordinal loss weight: `0.2`
+- soft-label sigma: `1.0`
+- class-weight strategy: `effective`
+- effective beta: `0.999`
+- balanced sampler mode: `auto`
+- split strategy: `metadata_family_holdout`
+
+### Best Validation Checkpoint
+
+- best validation epoch: `67`
+- validation mean band error: `1.1627`
+- validation macro F1 at best epoch: `0.2737`
+- validation collapsed coarse macro F1 at best epoch: `0.4827`
+
+### Final Test Result
+
+Primary 10-band metrics:
+
+- exact accuracy: `0.1990`
+- macro F1: `0.1791`
+- mean band error: `1.3155`
+- `±1` band accuracy: `0.7233`
+- severe band-error rate: `0.2767`
+
+Collapsed 4-class diagnostic:
+
+- accuracy: `0.4854`
+- macro F1: `0.4557`
+
+### Interpretation
+
+This is a legitimate ordinal baseline, not a collapse or broken run. The model
+is usually near the right answer, but it is still weak on exact 10-band
+discrimination. The gap between:
+
+- exact 10-band accuracy `0.1990`
+- `±1` band accuracy `0.7233`
+
+shows that the model often lands close to the correct severity band without
+cleanly separating neighboring bands.
+
+### Follow-up
+
+The next step is not a broad redesign. It is a narrow V4.1 challenger sweep
+around the current baseline:
+
+- sigma `0.75`
+- sigma `1.25`
+- dropout `0.2`
+- effective beta `0.995`
+
+## Milestone 41: V4.1 Score-Band Challenger Sweep Completed
+
+### Outcome
+
+The narrow V4.1 sweep completed across four challengers against the full V4
+score-band baseline.
+
+Sweep artifacts:
+
+- sweep root:
+  [v4_1_local_sweep_20260514](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_1_local_sweep_20260514)
+- ranked sweep summary:
+  [v4_1_sweep_summary_ranked.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_1_local_sweep_20260514/v4_1_sweep_summary_ranked.csv)
+- baseline-plus-challengers comparison:
+  [v4_1_score_band_challenger_comparison_20260514.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_1_score_band_challenger_comparison_20260514.csv)
+
+### Configurations Evaluated
+
+- `sigma=0.75`
+- `sigma=1.25`
+- `dropout=0.2`
+- `effective_beta=0.995`
+
+All other training settings stayed fixed to the current V4 score-band baseline.
+
+### Ranked Result
+
+By the primary selection metric `val_mean_band_error`:
+
+1. `sigma=1.25`: `1.1325`
+2. `sigma=0.75`: `1.1747`
+3. `dropout=0.2`: `1.2048`
+4. `effective_beta=0.995`: `1.2530`
+
+Reference V4 baseline:
+
+- `sigma=1.0`, `beta=0.999`, `dropout=0.1`
+- `val_mean_band_error=1.1627`
+
+### Key Observation
+
+`sigma=1.25` is the first challenger that beat the baseline on the primary
+validation selection metric. However, it did not improve the held-out test
+behavior:
+
+- baseline test mean band error: `1.3155`
+- `sigma=1.25` test mean band error: `1.3932`
+- baseline test `+-1` band accuracy: `0.7233`
+- `sigma=1.25` test `+-1` band accuracy: `0.6893`
+- baseline test macro F1: `0.1791`
+- `sigma=1.25` test macro F1: `0.1818`
+
+So the result is mixed:
+
+- better validation selection metric
+- weaker held-out ordinal test behavior
+- slightly higher exact 10-band macro F1
+
+### Decision
+
+Do not replace the V4 baseline yet.
+
+The right next step is a controlled confirmation run between:
+
+- current V4 baseline: `sigma=1.0`
+- V4.1 leading challenger: `sigma=1.25`
+
+That comparison should be repeated with at least one additional seed before
+locking a new score-band baseline.
+
+## Milestone 42: Two-Seed Confirmation for Baseline vs `sigma=1.25`
+
+### Outcome
+
+The baseline versus `sigma=1.25` score-band comparison has now been repeated
+with a second seed.
+
+Artifacts:
+
+- seed-43 confirmation runs:
+  [v4_1_seed43_confirmation_20260514](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_1_seed43_confirmation_20260514)
+- seed-43 ranked summary:
+  [seed43_confirmation_summary_ranked.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_1_seed43_confirmation_20260514/seed43_confirmation_summary_ranked.csv)
+- two-seed run table:
+  [v4_1_two_seed_baseline_vs_sigma125_20260514.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_1_two_seed_baseline_vs_sigma125_20260514.csv)
+- two-seed aggregate:
+  [v4_1_two_seed_baseline_vs_sigma125_aggregate_20260514.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_1_two_seed_baseline_vs_sigma125_aggregate_20260514.csv)
+
+### Seed-43 Result
+
+Baseline `sigma=1.0`:
+
+- best validation mean band error: `1.2793`
+- test mean band error: `1.4130`
+- test `+-1` band accuracy: `0.6739`
+- collapsed coarse macro F1: `0.4335`
+
+Challenger `sigma=1.25`:
+
+- best validation mean band error: `1.2514`
+- test mean band error: `1.3587`
+- test `+-1` band accuracy: `0.6793`
+- collapsed coarse macro F1: `0.4772`
+
+### Two-Seed Comparison
+
+Validation selection metric:
+
+- seed 42: `sigma=1.25` beat baseline (`1.1325` vs `1.1627`)
+- seed 43: `sigma=1.25` beat baseline (`1.2514` vs `1.2793`)
+
+So `sigma=1.25` wins the primary validation metric in both tested seeds.
+
+However, the two-seed average held-out test behavior is still mixed:
+
+- mean test band error:
+  - baseline: `1.3643`
+  - `sigma=1.25`: `1.3759`
+- mean test `+-1` band accuracy:
+  - baseline: `0.6986`
+  - `sigma=1.25`: `0.6843`
+- mean test macro F1:
+  - baseline: `0.1961`
+  - `sigma=1.25`: `0.1943`
+
+### Decision
+
+Do not lock `sigma=1.25` as the new baseline yet.
+
+The correct conclusion is:
+
+- `sigma=1.25` is a legitimate improvement on the validation selection metric
+- but it does not yet produce a cleaner two-seed test outcome
+- therefore the repo should keep the current V4 baseline locked for now
+
+The next sweep should stay narrow and target the space between `1.0` and `1.25`
+rather than promoting `1.25` outright.

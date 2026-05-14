@@ -33,6 +33,19 @@ class TrainingArtifactTests(unittest.TestCase):
         self.assertTrue(third.should_stop)
         self.assertEqual(third.best_epoch, 1)
 
+    def test_early_stopping_tracker_supports_min_mode(self) -> None:
+        tracker = EarlyStoppingTracker(patience=2, min_delta=0.01, mode="min")
+
+        first = tracker.update(epoch_number=1, metric_value=1.20)
+        second = tracker.update(epoch_number=2, metric_value=1.195)
+        third = tracker.update(epoch_number=3, metric_value=1.196)
+
+        self.assertTrue(first.is_best)
+        self.assertFalse(second.is_best)
+        self.assertFalse(third.is_best)
+        self.assertTrue(third.should_stop)
+        self.assertEqual(third.best_epoch, 1)
+
     def test_build_run_config_records_training_controls(self) -> None:
         config = build_run_config(
             manifest_path=Path("/tmp/manifest.csv"),
@@ -60,6 +73,9 @@ class TrainingArtifactTests(unittest.TestCase):
             pretrained=False,
             freeze_backbone=False,
             ordinal_loss_weight=0.0,
+            score_band_soft_label_sigma=1.0,
+            score_band_class_weight_strategy="effective",
+            score_band_effective_beta=0.999,
             target_label_mode="score_band",
             class_names=["0-10", "11-20"],
             train_fraction=0.2,
@@ -79,9 +95,14 @@ class TrainingArtifactTests(unittest.TestCase):
         self.assertEqual(config["overfit_subset_size"], 32)
         self.assertFalse(config["use_augmentation"])
         self.assertEqual(config["ordinal_loss_weight"], 0.0)
+        self.assertEqual(config["score_band_soft_label_sigma"], 1.0)
+        self.assertEqual(config["score_band_class_weight_strategy"], "effective")
+        self.assertEqual(config["score_band_effective_beta"], 0.999)
         self.assertEqual(config["target_label_mode"], "score_band")
         self.assertEqual(config["num_classes"], 2)
         self.assertEqual(config["class_names"], ["0-10", "11-20"])
+        self.assertEqual(config["selection_metric_name"], "val_mean_band_error")
+        self.assertEqual(config["selection_metric_mode"], "min")
         self.assertEqual(config["train_fraction"], 0.2)
         self.assertEqual(config["val_fraction"], 0.2)
         self.assertEqual(config["test_fraction"], 0.6)

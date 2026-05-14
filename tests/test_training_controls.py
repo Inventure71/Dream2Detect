@@ -21,12 +21,22 @@ from dream2detect.training.models import (
     SimpleCNNClassifier,
 )
 from dream2detect.training.models import ResidualCNNMultiTaskClassifier
+from dream2detect.training.metrics import (
+    band_indices_to_coarse_indices,
+    collapse_score_band_probabilities_to_coarse,
+    summarize_ordinal_errors,
+)
 from dream2detect.training.splits import build_stratified_splits, derive_metadata_family_groups
 from dream2detect.training.train_classifier import (
     build_classification_loss,
+    build_effective_number_class_weights,
     build_ordinal_classification_loss,
+    build_score_band_soft_label_loss,
+    build_soft_ordinal_targets,
     build_overfit_indices,
     decode_cumulative_ordinal_logits,
+    extract_epoch_selection_metric,
+    EpochResult,
     validate_split_fractions,
 )
 
@@ -158,6 +168,117 @@ class TrainingControlTests(unittest.TestCase):
         predictions = decode_cumulative_ordinal_logits(logits)
 
         self.assertEqual(predictions.tolist(), [0, 1, 2, 3])
+
+    def test_soft_ordinal_targets_peak_at_true_band_and_sum_to_one(self) -> None:
+        targets = torch.tensor([0, 5, 9])
+
+        soft_targets = build_soft_ordinal_targets(
+            targets,
+            num_classes=10,
+            sigma=1.0,
+        )
+
+        self.assertEqual(tuple(soft_targets.shape), (3, 10))
+        self.assertTrue(torch.allclose(soft_targets.sum(dim=1), torch.ones(3)))
+        self.assertEqual(torch.argmax(soft_targets[0]).item(), 0)
+        self.assertEqual(torch.argmax(soft_targets[1]).item(), 5)
+        self.assertEqual(torch.argmax(soft_targets[2]).item(), 9)
+
+    def test_score_band_soft_label_loss_penalizes_far_errors(self) -> None:
+        weights = torch.ones(10)
+        targets = torch.tensor([5])
+        loss_fn = build_score_band_soft_label_loss(
+            class_weights=weights,
+            use_balanced_sampler=False,
+            ordinal_loss_weight=0.0,
+            device=torch.device("cpu"),
+            num_classes=10,
+            soft_label_sigma=1.0,
+        )
+
+        near_logits = torch.tensor(
+            [[-4.0, -4.0, -3.0, -2.0, 1.5, 3.0, 1.5, -2.0, -3.0, -4.0]]
+        )
+        far_logits = torch.tensor(
+            [[3.0, 1.5, -1.0, -2.0, -3.0, -4.0, -3.0, -2.0, -1.0, 1.0]]
+        )
+
+        self.assertLess(float(loss_fn(near_logits, targets)), float(loss_fn(far_logits, targets)))
+
+    def test_effective_number_weights_upweight_rarer_classes(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "training_score_band": ["0-10"] * 5 + ["86-100"],
+            }
+        )
+
+        weights = build_effective_number_class_weights(
+            frame,
+            train_indices=list(range(len(frame))),
+            device=torch.device("cpu"),
+            label_column="training_score_band",
+            class_names=("0-10", "86-100"),
+            beta=0.9,
+        )
+
+        self.assertGreater(float(weights[1]), float(weights[0]))
+
+    def test_score_band_selection_metric_uses_mean_band_error(self) -> None:
+        score_band_result = EpochResult(
+            loss=1.0,
+            accuracy=0.4,
+            macro_f1=0.35,
+            confusion=[[1]],
+            mean_band_error=0.8,
+        )
+        coarse_result = EpochResult(
+            loss=1.0,
+            accuracy=0.4,
+            macro_f1=0.35,
+            confusion=[[1]],
+        )
+
+        self.assertEqual(
+            extract_epoch_selection_metric(score_band_result, target_label_mode="score_band"),
+            0.8,
+        )
+        self.assertEqual(
+            extract_epoch_selection_metric(coarse_result, target_label_mode="coarse"),
+            0.35,
+        )
+
+    def test_score_band_probabilities_collapse_to_coarse_groups(self) -> None:
+        probabilities = torch.tensor(
+            [
+                [0.6, 0.1, 0.1, 0.0, 0.05, 0.05, 0.0, 0.05, 0.03, 0.02],
+                [0.0, 0.05, 0.10, 0.10, 0.10, 0.10, 0.05, 0.15, 0.15, 0.20],
+            ]
+        )
+
+        collapsed = collapse_score_band_probabilities_to_coarse(probabilities)
+
+        self.assertEqual(tuple(collapsed.shape), (2, 4))
+        self.assertTrue(torch.allclose(collapsed.sum(dim=1), torch.ones(2)))
+        self.assertEqual(torch.argmax(collapsed[0]).item(), 0)
+        self.assertEqual(torch.argmax(collapsed[1]).item(), 3)
+
+    def test_band_indices_map_to_coarse_indices(self) -> None:
+        band_indices = torch.tensor([0, 1, 3, 4, 6, 7, 9])
+
+        coarse_indices = band_indices_to_coarse_indices(band_indices)
+
+        self.assertEqual(coarse_indices.tolist(), [0, 1, 1, 2, 2, 3, 3])
+
+    def test_summarize_ordinal_errors_counts_near_misses(self) -> None:
+        predictions = torch.tensor([0, 1, 3, 3])
+        targets = torch.tensor([0, 2, 2, 0])
+
+        summary = summarize_ordinal_errors(predictions, targets)
+
+        self.assertEqual(summary["total"], 4)
+        self.assertAlmostEqual(float(summary["exact_accuracy"]), 0.25)
+        self.assertAlmostEqual(float(summary["within_one_band_accuracy"]), 0.75)
+        self.assertAlmostEqual(float(summary["mean_band_error"]), 1.25)
 
     def test_overfit_indices_are_balanced_when_possible(self) -> None:
         frame = pd.DataFrame(
