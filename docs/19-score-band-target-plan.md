@@ -254,3 +254,201 @@ Next experiment direction:
 
 - search narrowly between `sigma=1.0` and `sigma=1.25`
 - do not broaden back into unrelated hyperparameters yet
+
+## V4.2 Sigma Sweep Result
+
+The V4.2 sigma-only sweep is now complete.
+
+Supporting artifacts:
+
+- [v4_2_sigma_sweep_aggregate_ranked.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_2_sigma_sweep_20260515/v4_2_sigma_sweep_aggregate_ranked.csv)
+- [v4_2_sigma_candidates_vs_locked_baseline_aggregate_20260515.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_2_sigma_candidates_vs_locked_baseline_aggregate_20260515.csv)
+
+What is now established:
+
+- `sigma=1.10` gave the best V4.2 validation average
+- `sigma=1.20` gave the best V4.2 held-out test band error
+- no sigma value improved both at once
+
+Current lock decision after V4.2:
+
+- keep the current V4 baseline locked
+- stop tuning sigma for now
+
+## Next Experiment Direction
+
+The next narrow score-band axis should no longer be sigma.
+
+The better next step is:
+
+- change the **soft-label target shape** or
+- change the **score-band weighting rule**
+
+Do not broaden back into unrelated hyperparameters until one of those target
+formulation changes is tested.
+
+## V4.5 Objective-Change Challenger
+
+The next score-band challenger is now locked as **V4.5**.
+
+V4.5 is intentionally narrow:
+
+- keep the current V4 score-band data split, model, optimizer, augmentation,
+  and target construction
+- change **only** the score-band training objective
+- do **not** restart a broad hyperparameter sweep
+
+Fixed V4.5 training definition:
+
+- model: `residual_cnn`
+- split strategy: `metadata_family_holdout`
+- augmentation: `damage_safe`
+- target label mode: `score_band`
+- score-band soft-label sigma: `1.0`
+- score-band class-weight strategy: `effective`
+- score-band effective beta: `0.999`
+- ordinal loss weight: `0.2`
+- new score-band EMD weight: `0.5`
+- random seed: `42`
+
+The V4.5 loss should be:
+
+- soft-label cross-entropy
+- plus cumulative squared EMD across the ten ordered score bands
+- plus the existing smooth ordinal expectation penalty
+
+Operational constraints for V4.5:
+
+- no CORAL/CORN branch yet
+- no scalar-regression branch
+- no new sigma sweep
+- no pretrained backbone work
+
+Expected artifact naming:
+
+- training run:
+  [v4_5_score_band_emd05_seed42_20260515](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_5_score_band_emd05_seed42_20260515)
+- comparison artifact:
+  [v4_5_vs_locked_v4_20260515.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_5_vs_locked_v4_20260515.csv)
+
+## V4.5 Result
+
+The first V4.5 objective-change challenger is now complete.
+
+Artifacts:
+
+- training run:
+  [v4_5_score_band_emd05_seed42_20260515](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_5_score_band_emd05_seed42_20260515)
+- diagnostics:
+  [diagnostics](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_5_score_band_emd05_seed42_20260515/diagnostics)
+- baseline comparison:
+  [v4_5_vs_locked_v4_20260515.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_5_vs_locked_v4_20260515.csv)
+
+What V4.5 changed:
+
+- kept the V4 score-band stack fixed
+- added cumulative squared EMD with `score_band_emd_weight=0.5`
+
+Outcome versus locked V4:
+
+- validation mean band error:
+  - locked V4: `1.1627`
+  - V4.5: `1.2229`
+- test mean band error:
+  - locked V4: `1.3155`
+  - V4.5: `1.3398`
+- test `+-1` band accuracy:
+  - locked V4: `0.7233`
+  - V4.5: `0.7330`
+- test 10-band macro F1:
+  - locked V4: `0.1791`
+  - V4.5: `0.1574`
+- collapsed 4-class macro F1:
+  - locked V4: `0.4557`
+  - V4.5: `0.4439`
+
+Current decision:
+
+- keep the locked V4 baseline
+- treat V4.5 as a meaningful objective-change challenger
+- do not promote the hybrid EMD objective as the new default from this run alone
+
+## V4.5 SAM3-Cropped Synthetic Ablation
+
+The SAM3 square-crop synthetic ablation is complete.
+
+Artifacts:
+
+- cropped synthetic manifest:
+  [synthetic_full_qc_plus_v2_scale_sam3_square_pad01_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/synthetic_full_qc_plus_v2_scale_sam3_square_pad01_384.csv)
+- cropped-synthetic V4.5 run:
+  [v4_5_sam3_square_pad01_synthetic_only_20260516](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_5_sam3_square_pad01_synthetic_only_20260516)
+- raw-real transfer comparison:
+  [v4_5_sam3_square_pad01_vs_original_20260516.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/real_transfer/v4_5_sam3_square_pad01_vs_original_20260516.csv)
+
+Result:
+
+- synthetic held-out mean band error improved from `1.3398` to `1.2670`
+- synthetic held-out 10-band macro F1 improved from `0.1574` to `0.2037`
+- raw-real transfer mean band error worsened from `2.5351` to `2.9558`
+- raw-real transfer `+-1` band accuracy worsened from `0.3532` to `0.2468`
+- raw-real transfer 10-band macro F1 worsened from `0.0834` to `0.0537`
+
+Decision:
+
+- do not promote SAM3-cropped synthetic training as the new baseline
+- treat it as an ablation showing that cleaner synthetic framing does not
+  automatically improve raw-real transfer
+- do not SAM-crop the real dataset further unless the plan is explicitly
+  changed
+
+## V5 Direction
+
+V5 is now the performance-seeking phase for the 10-band `score_band` target.
+
+Detailed V5 design:
+
+- [docs/21-v5-design-plan.md](/Users/inventure71/VSProjects/School/Dream2Detect/docs/21-v5-design-plan.md)
+
+Primary objective:
+
+- improve the 10-band ordinal severity model as much as possible while keeping
+  the experiment honest and auditable
+
+Hard constraints:
+
+- no pretrained backbones
+- no SAM-cropping of real images unless explicitly re-approved
+- `score_band` remains the primary target
+- collapsed 4-class evaluation remains secondary
+- raw-real transfer metrics are reported, but should not be silently used for
+  model selection unless a separate real validation policy is defined
+
+Current lessons entering V5:
+
+- V4 remains the locked score-band reference
+- V4.5 EMD was useful but not enough to replace V4
+- SAM3-cropped synthetic training improved synthetic holdout but hurt raw-real
+  transfer
+- further gains likely require a structural target/head change, not another
+  small optimizer or sigma tweak
+
+Recommended V5 candidates:
+
+1. Scalar ordinal regression head:
+   - predict one normalized severity value in `[0, 1]`
+   - train from representative score or band midpoint
+   - map the scalar prediction back to the 10 score bands for evaluation
+2. Multitask ordinal model:
+   - shared from-scratch backbone
+   - 10-band score head
+   - scalar severity head
+   - optional collapsed coarse auxiliary head
+3. Threshold-based ordinal head:
+   - CORAL/CORN-style ordered thresholds
+   - same from-scratch backbone and same data split
+
+First V5 implementation should start with the scalar ordinal regression head,
+because it directly matches the ordered nature of severity and tests the
+specific hypothesis that the current 10-way classifier is too classification
+shaped for this task.

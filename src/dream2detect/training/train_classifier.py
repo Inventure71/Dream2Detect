@@ -568,6 +568,27 @@ def build_soft_ordinal_targets(
     return torch.softmax(logits, dim=1)
 
 
+def build_cumulative_distribution(probabilities: torch.Tensor) -> torch.Tensor:
+    if probabilities.ndim != 2:
+        raise ValueError(
+            "build_cumulative_distribution expects a 2D tensor of probabilities."
+        )
+    return torch.cumsum(probabilities, dim=1)
+
+
+def compute_squared_emd_per_example(
+    predicted_probabilities: torch.Tensor,
+    target_probabilities: torch.Tensor,
+) -> torch.Tensor:
+    if predicted_probabilities.shape != target_probabilities.shape:
+        raise ValueError(
+            "Predicted and target probability tensors must have the same shape."
+        )
+    predicted_cumulative = build_cumulative_distribution(predicted_probabilities)
+    target_cumulative = build_cumulative_distribution(target_probabilities)
+    return torch.mean((predicted_cumulative - target_cumulative) ** 2, dim=1)
+
+
 def build_overfit_indices(
     frame: pd.DataFrame,
     *,
@@ -890,6 +911,7 @@ def build_run_config(
     freeze_backbone: bool,
     ordinal_loss_weight: float,
     score_band_soft_label_sigma: float,
+    score_band_emd_weight: float,
     score_band_class_weight_strategy: str,
     score_band_effective_beta: float,
     target_label_mode: str,
@@ -934,6 +956,7 @@ def build_run_config(
         "freeze_backbone": freeze_backbone,
         "ordinal_loss_weight": ordinal_loss_weight,
         "score_band_soft_label_sigma": score_band_soft_label_sigma,
+        "score_band_emd_weight": score_band_emd_weight,
         "score_band_class_weight_strategy": score_band_class_weight_strategy,
         "score_band_effective_beta": score_band_effective_beta,
         "target_label_mode": target_label_mode,
@@ -1399,6 +1422,7 @@ def build_score_band_soft_label_loss(
     class_weights: torch.Tensor,
     use_balanced_sampler: bool,
     ordinal_loss_weight: float,
+    score_band_emd_weight: float,
     device: torch.device,
     num_classes: int,
     soft_label_sigma: float,
@@ -1410,6 +1434,11 @@ def build_score_band_soft_label_loss(
     if soft_label_sigma <= 0:
         raise ValueError(
             f"soft_label_sigma must be positive, got {soft_label_sigma}"
+        )
+    if score_band_emd_weight < 0:
+        raise ValueError(
+            "score_band_emd_weight must be non-negative, "
+            f"got {score_band_emd_weight}"
         )
 
     class_positions = torch.arange(num_classes, dtype=torch.float32, device=device)
@@ -1431,11 +1460,25 @@ def build_score_band_soft_label_loss(
 
         log_probabilities = F.log_softmax(logits, dim=1)
         loss = -(weighted_targets * log_probabilities).sum(dim=1).mean()
+        probabilities = torch.softmax(logits, dim=1)
+
+        if score_band_emd_weight > 0:
+            emd_per_example = compute_squared_emd_per_example(
+                probabilities,
+                soft_targets,
+            )
+            if use_balanced_sampler:
+                emd_loss = emd_per_example.mean()
+            else:
+                sample_weights = class_weights[targets]
+                emd_loss = (emd_per_example * sample_weights).sum() / sample_weights.sum().clamp_min(
+                    1e-8
+                )
+            loss = loss + score_band_emd_weight * emd_loss
 
         if ordinal_loss_weight == 0:
             return loss
 
-        probabilities = torch.softmax(logits, dim=1)
         expected_class_index = (probabilities * class_positions).sum(dim=1)
         ordinal_loss = F.smooth_l1_loss(
             expected_class_index,
@@ -1528,6 +1571,7 @@ def train_synthetic_classifier(
     freeze_backbone: bool = False,
     ordinal_loss_weight: float = 0.0,
     score_band_soft_label_sigma: float = 1.0,
+    score_band_emd_weight: float = 0.0,
     score_band_class_weight_strategy: str = "effective",
     score_band_effective_beta: float = 0.999,
     target_label_mode: str = "coarse",
@@ -1571,6 +1615,10 @@ def train_synthetic_classifier(
         raise ValueError(
             "score_band_soft_label_sigma must be positive, "
             f"got {score_band_soft_label_sigma}"
+        )
+    if score_band_emd_weight < 0:
+        raise ValueError(
+            f"score_band_emd_weight must be non-negative, got {score_band_emd_weight}"
         )
     if score_band_class_weight_strategy not in {"balanced", "effective"}:
         raise ValueError(
@@ -1664,6 +1712,7 @@ def train_synthetic_classifier(
         freeze_backbone=freeze_backbone,
         ordinal_loss_weight=ordinal_loss_weight,
         score_band_soft_label_sigma=score_band_soft_label_sigma,
+        score_band_emd_weight=score_band_emd_weight,
         score_band_class_weight_strategy=score_band_class_weight_strategy,
         score_band_effective_beta=score_band_effective_beta,
         target_label_mode=target_label_mode,
@@ -1742,6 +1791,7 @@ def train_synthetic_classifier(
                 class_weights=class_weights,
                 use_balanced_sampler=resolved_use_balanced_sampler,
                 ordinal_loss_weight=ordinal_loss_weight,
+                score_band_emd_weight=score_band_emd_weight,
                 device=device,
                 num_classes=len(class_names),
                 soft_label_sigma=score_band_soft_label_sigma,

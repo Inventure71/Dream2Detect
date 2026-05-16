@@ -29,8 +29,10 @@ from dream2detect.training.metrics import (
 from dream2detect.training.splits import build_stratified_splits, derive_metadata_family_groups
 from dream2detect.training.train_classifier import (
     build_classification_loss,
+    build_cumulative_distribution,
     build_effective_number_class_weights,
     build_ordinal_classification_loss,
+    compute_squared_emd_per_example,
     build_score_band_soft_label_loss,
     build_soft_ordinal_targets,
     build_overfit_indices,
@@ -191,6 +193,7 @@ class TrainingControlTests(unittest.TestCase):
             class_weights=weights,
             use_balanced_sampler=False,
             ordinal_loss_weight=0.0,
+            score_band_emd_weight=0.0,
             device=torch.device("cpu"),
             num_classes=10,
             soft_label_sigma=1.0,
@@ -204,6 +207,58 @@ class TrainingControlTests(unittest.TestCase):
         )
 
         self.assertLess(float(loss_fn(near_logits, targets)), float(loss_fn(far_logits, targets)))
+
+    def test_cumulative_distribution_accumulates_across_ordered_classes(self) -> None:
+        probabilities = torch.tensor([[0.1, 0.2, 0.3, 0.4]])
+
+        cumulative = build_cumulative_distribution(probabilities)
+
+        self.assertTrue(
+            torch.allclose(cumulative, torch.tensor([[0.1, 0.3, 0.6, 1.0]]))
+        )
+
+    def test_squared_emd_is_zero_for_identical_distributions(self) -> None:
+        probabilities = torch.tensor([[0.1, 0.2, 0.3, 0.4]])
+
+        emd = compute_squared_emd_per_example(probabilities, probabilities)
+
+        self.assertTrue(torch.allclose(emd, torch.zeros(1)))
+
+    def test_squared_emd_penalizes_farther_ordinal_distribution_errors_more(self) -> None:
+        target = torch.tensor([[0.0, 0.0, 1.0, 0.0, 0.0]])
+        near = torch.tensor([[0.0, 0.5, 0.5, 0.0, 0.0]])
+        far = torch.tensor([[0.5, 0.5, 0.0, 0.0, 0.0]])
+
+        near_emd = compute_squared_emd_per_example(near, target)
+        far_emd = compute_squared_emd_per_example(far, target)
+
+        self.assertLess(float(near_emd.item()), float(far_emd.item()))
+
+    def test_score_band_emd_weight_zero_preserves_existing_loss_path(self) -> None:
+        weights = torch.ones(10)
+        targets = torch.tensor([4])
+        logits = torch.tensor([[-2.0, -1.0, 0.0, 2.0, 3.0, 1.5, 0.0, -1.0, -2.0, -3.0]])
+
+        base_loss = build_score_band_soft_label_loss(
+            class_weights=weights,
+            use_balanced_sampler=False,
+            ordinal_loss_weight=0.2,
+            score_band_emd_weight=0.0,
+            device=torch.device("cpu"),
+            num_classes=10,
+            soft_label_sigma=1.0,
+        )
+        same_loss = build_score_band_soft_label_loss(
+            class_weights=weights,
+            use_balanced_sampler=False,
+            ordinal_loss_weight=0.2,
+            score_band_emd_weight=0.0,
+            device=torch.device("cpu"),
+            num_classes=10,
+            soft_label_sigma=1.0,
+        )
+
+        self.assertAlmostEqual(float(base_loss(logits, targets)), float(same_loss(logits, targets)))
 
     def test_effective_number_weights_upweight_rarer_classes(self) -> None:
         frame = pd.DataFrame(

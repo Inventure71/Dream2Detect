@@ -34,6 +34,7 @@ class ExperimentConfig:
     augmentation_profile: str
     ordinal_loss_weight: float
     score_band_soft_label_sigma: float
+    score_band_emd_weight: float
     score_band_effective_beta: float
     optimizer_name: str
     lr_scheduler_name: str
@@ -89,6 +90,7 @@ def build_summary_row(
         "augmentation_profile": config.augmentation_profile,
         "ordinal_loss_weight": config.ordinal_loss_weight,
         "score_band_soft_label_sigma": config.score_band_soft_label_sigma,
+        "score_band_emd_weight": config.score_band_emd_weight,
         "score_band_effective_beta": config.score_band_effective_beta,
         "random_seed": config.random_seed,
         "split_strategy": split_strategy,
@@ -149,6 +151,7 @@ def build_experiment_configs(
     model_variants: list[str],
     ordinal_loss_weights: list[float],
     score_band_soft_label_sigmas: list[float],
+    score_band_emd_weights: list[float],
     score_band_effective_betas: list[float],
     optimizer_names: list[str],
     lr_scheduler_names: list[str],
@@ -167,72 +170,77 @@ def build_experiment_configs(
                                 for model_variant in model_variants:
                                     for ordinal_loss_weight in ordinal_loss_weights:
                                         for score_band_soft_label_sigma in score_band_soft_label_sigmas:
-                                            for score_band_effective_beta in score_band_effective_betas:
-                                                for optimizer_name in optimizer_names:
-                                                    for lr_scheduler_name in lr_scheduler_names:
-                                                        for random_seed in random_seeds:
-                                                            sampler_slug = (
-                                                                "balanced"
-                                                                if use_balanced_sampler
-                                                                else "unbalanced"
-                                                            )
-                                                            augmentation_slug = (
-                                                                augmentation_profile
-                                                                if use_augmentation
-                                                                else "noaug"
-                                                            )
-                                                            scheduler_slug = (
-                                                                "sched"
-                                                                if lr_scheduler_name
-                                                                == "reduce_on_plateau"
-                                                                else "nosched"
-                                                            )
-                                                            name = (
-                                                                f"img{image_size}_"
-                                                                f"{model_variant}_"
-                                                                f"ord{slug_float(ordinal_loss_weight)}_"
-                                                                f"sig{slug_float(score_band_soft_label_sigma)}_"
-                                                                f"beta{slug_float(score_band_effective_beta)}_"
-                                                                f"lr{slug_float(learning_rate)}_"
-                                                                f"wd{slug_float(weight_decay)}_"
-                                                                f"do{slug_float(dropout)}_"
-                                                                f"{optimizer_name}_"
-                                                                f"{scheduler_slug}_"
-                                                                f"{sampler_slug}_"
-                                                                f"{augmentation_slug}_"
-                                                                f"seed{random_seed}"
-                                                            )
-                                                            configs.append(
-                                                                ExperimentConfig(
-                                                                    name=name,
-                                                                    model_variant=model_variant,
-                                                                    image_size=image_size,
-                                                                    learning_rate=learning_rate,
-                                                                    weight_decay=weight_decay,
-                                                                    dropout=dropout,
-                                                                    use_balanced_sampler=(
-                                                                        use_balanced_sampler
-                                                                    ),
-                                                                    use_augmentation=use_augmentation,
-                                                                    augmentation_profile=(
-                                                                        augmentation_profile
-                                                                    ),
-                                                                    ordinal_loss_weight=(
-                                                                        ordinal_loss_weight
-                                                                    ),
-                                                                    score_band_soft_label_sigma=(
-                                                                        score_band_soft_label_sigma
-                                                                    ),
-                                                                    score_band_effective_beta=(
-                                                                        score_band_effective_beta
-                                                                    ),
-                                                                    optimizer_name=optimizer_name,
-                                                                    lr_scheduler_name=(
-                                                                        lr_scheduler_name
-                                                                    ),
-                                                                    random_seed=random_seed,
+                                            for score_band_emd_weight in score_band_emd_weights:
+                                                for score_band_effective_beta in score_band_effective_betas:
+                                                    for optimizer_name in optimizer_names:
+                                                        for lr_scheduler_name in lr_scheduler_names:
+                                                            for random_seed in random_seeds:
+                                                                sampler_slug = (
+                                                                    "balanced"
+                                                                    if use_balanced_sampler
+                                                                    else "unbalanced"
                                                                 )
-                                                            )
+                                                                augmentation_slug = (
+                                                                    augmentation_profile
+                                                                    if use_augmentation
+                                                                    else "noaug"
+                                                                )
+                                                                scheduler_slug = (
+                                                                    "sched"
+                                                                    if lr_scheduler_name
+                                                                    == "reduce_on_plateau"
+                                                                    else "nosched"
+                                                                )
+                                                                name = (
+                                                                    f"img{image_size}_"
+                                                                    f"{model_variant}_"
+                                                                    f"ord{slug_float(ordinal_loss_weight)}_"
+                                                                    f"sig{slug_float(score_band_soft_label_sigma)}_"
+                                                                    f"emd{slug_float(score_band_emd_weight)}_"
+                                                                    f"beta{slug_float(score_band_effective_beta)}_"
+                                                                    f"lr{slug_float(learning_rate)}_"
+                                                                    f"wd{slug_float(weight_decay)}_"
+                                                                    f"do{slug_float(dropout)}_"
+                                                                    f"{optimizer_name}_"
+                                                                    f"{scheduler_slug}_"
+                                                                    f"{sampler_slug}_"
+                                                                    f"{augmentation_slug}_"
+                                                                    f"seed{random_seed}"
+                                                                )
+                                                                configs.append(
+                                                                    ExperimentConfig(
+                                                                        name=name,
+                                                                        model_variant=model_variant,
+                                                                        image_size=image_size,
+                                                                        learning_rate=learning_rate,
+                                                                        weight_decay=weight_decay,
+                                                                        dropout=dropout,
+                                                                        use_balanced_sampler=(
+                                                                            use_balanced_sampler
+                                                                        ),
+                                                                        use_augmentation=use_augmentation,
+                                                                        augmentation_profile=(
+                                                                            augmentation_profile
+                                                                        ),
+                                                                        ordinal_loss_weight=(
+                                                                            ordinal_loss_weight
+                                                                        ),
+                                                                        score_band_soft_label_sigma=(
+                                                                            score_band_soft_label_sigma
+                                                                        ),
+                                                                        score_band_emd_weight=(
+                                                                            score_band_emd_weight
+                                                                        ),
+                                                                        score_band_effective_beta=(
+                                                                            score_band_effective_beta
+                                                                        ),
+                                                                        optimizer_name=optimizer_name,
+                                                                        lr_scheduler_name=(
+                                                                            lr_scheduler_name
+                                                                        ),
+                                                                        random_seed=random_seed,
+                                                                    )
+                                                                )
     return configs
 
 
@@ -305,6 +313,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default="coarse",
     )
     parser.add_argument("--score-band-soft-label-sigmas", default="1.0")
+    parser.add_argument("--score-band-emd-weights", default="0.0")
     parser.add_argument(
         "--score-band-class-weight-strategy",
         choices=["balanced", "effective"],
@@ -352,6 +361,10 @@ def main() -> None:
         ordinal_loss_weights=parse_csv_values(args.ordinal_loss_weights, float),
         score_band_soft_label_sigmas=parse_csv_values(
             args.score_band_soft_label_sigmas,
+            float,
+        ),
+        score_band_emd_weights=parse_csv_values(
+            args.score_band_emd_weights,
             float,
         ),
         score_band_effective_betas=parse_csv_values(
@@ -429,6 +442,7 @@ def main() -> None:
             ordinal_loss_weight=config.ordinal_loss_weight,
             target_label_mode=args.target_label_mode,
             score_band_soft_label_sigma=config.score_band_soft_label_sigma,
+            score_band_emd_weight=config.score_band_emd_weight,
             score_band_class_weight_strategy=args.score_band_class_weight_strategy,
             score_band_effective_beta=config.score_band_effective_beta,
             split_strategy=args.split_strategy,

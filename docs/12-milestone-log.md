@@ -2804,3 +2804,724 @@ The correct conclusion is:
 
 The next sweep should stay narrow and target the space between `1.0` and `1.25`
 rather than promoting `1.25` outright.
+
+## Milestone 43: V4.2 Sigma-Only Sweep Completed
+
+### Outcome
+
+The V4.2 sigma-only sweep is complete across:
+
+- `sigma=1.10`
+- `sigma=1.15`
+- `sigma=1.20`
+
+Each configuration was run with seeds `42` and `43`, keeping all other
+training settings fixed to the locked V4 baseline.
+
+Artifacts:
+
+- sweep root:
+  [v4_2_sigma_sweep_20260515](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_2_sigma_sweep_20260515)
+- per-run table:
+  [v4_2_sigma_sweep_runs.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_2_sigma_sweep_20260515/v4_2_sigma_sweep_runs.csv)
+- aggregate ranking:
+  [v4_2_sigma_sweep_aggregate_ranked.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier_grid/v4_2_sigma_sweep_20260515/v4_2_sigma_sweep_aggregate_ranked.csv)
+- baseline comparison:
+  [v4_2_sigma_sweep_vs_baseline_20260515.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_2_sigma_sweep_vs_baseline_20260515.csv)
+- aggregate baseline comparison:
+  [v4_2_sigma_candidates_vs_locked_baseline_aggregate_20260515.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_2_sigma_candidates_vs_locked_baseline_aggregate_20260515.csv)
+
+### Aggregate Result
+
+By average validation mean band error:
+
+1. `sigma=1.10`: `1.2135`
+2. `sigma=1.15`: `1.2210`
+3. `sigma=1.20`: `1.3055`
+
+Reference locked baseline:
+
+- `sigma=1.00`: `1.2210`
+
+### Interpretation
+
+None of the V4.2 sigma candidates is strong enough to replace the locked
+baseline.
+
+What happened:
+
+- `sigma=1.10` slightly improved average validation mean band error
+  (`1.2135` vs `1.2210`)
+  but clearly worsened held-out test behavior:
+  - mean test band error: `1.4172`
+  - mean test `+-1` band accuracy: `0.6529`
+- `sigma=1.15` did not improve validation on average and produced the weakest
+  test behavior of the sweep.
+- `sigma=1.20` produced the best V4.2 held-out test band error:
+  - mean test band error: `1.3490`
+  - mean test `+-1` band accuracy: `0.6980`
+  but its validation mean band error was materially worse than the baseline:
+  - `1.3055` vs `1.2210`
+
+So the sigma-only space between `1.0` and `1.25` is now effectively explored
+enough for this phase:
+
+- no candidate improved both validation selection and held-out ordinal test
+  behavior
+- therefore no V4.2 sigma value earns promotion
+
+### Decision
+
+Keep the current V4 baseline locked.
+
+Stop tuning sigma.
+
+The next score-band tuning axis should shift away from width-only changes and
+move to the **soft-label target shape or weighting rule**.
+
+## Milestone 44: V4.5 Objective-Change Challenger Locked
+
+### Decision
+
+The next score-band challenger is now locked as **V4.5**.
+
+V4.5 will keep the current V4 stack fixed:
+
+- `residual_cnn`
+- `metadata_family_holdout`
+- `damage_safe`
+- `score_band`
+- soft-label sigma `1.0`
+- effective-number beta `0.999`
+- ordinal loss weight `0.2`
+
+and change **only** the training objective by adding a cumulative squared EMD
+term with:
+
+- `score_band_emd_weight=0.5`
+
+Constraints for V4.5:
+
+- no CORAL/CORN branch yet
+- no scalar-regression branch
+- no new sigma sweep
+- no pretrained backbone work
+
+The first V4.5 run is a single-seed challenger, not a new locked baseline.
+
+## Milestone 45: V4.5 Hybrid Soft-CE + EMD Challenger Completed
+
+### Outcome
+
+The V4.5 score-band challenger is now fully implemented, trained, and analyzed.
+
+Artifacts:
+
+- training run:
+  [v4_5_score_band_emd05_seed42_20260515](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_5_score_band_emd05_seed42_20260515)
+- diagnostics:
+  [diagnostics](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_5_score_band_emd05_seed42_20260515/diagnostics)
+- comparison artifact:
+  [v4_5_vs_locked_v4_20260515.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/synthetic_only/v4_5_vs_locked_v4_20260515.csv)
+
+### Implementation
+
+V4.5 kept the current score-band stack fixed and changed only the objective:
+
+- soft-label cross-entropy
+- cumulative squared EMD with `score_band_emd_weight=0.5`
+- existing smooth ordinal expectation penalty
+
+The score-band EMD weight is now a first-class training control in:
+
+- trainer config
+- CLI
+- experiment-grid tooling
+
+### Result
+
+Best validation checkpoint:
+
+- best epoch: `61`
+- validation mean band error: `1.2229`
+
+Held-out test result:
+
+- exact accuracy: `0.1748`
+- macro F1: `0.1574`
+- mean band error: `1.3398`
+- `+-1` band accuracy: `0.7330`
+- collapsed 4-class macro F1: `0.4439`
+
+### Comparison to Locked V4
+
+Locked V4 remains better on the main selection and most summary metrics:
+
+- validation mean band error:
+  - locked V4: `1.1627`
+  - V4.5: `1.2229`
+- test mean band error:
+  - locked V4: `1.3155`
+  - V4.5: `1.3398`
+- test 10-band macro F1:
+  - locked V4: `0.1791`
+  - V4.5: `0.1574`
+- collapsed 4-class macro F1:
+  - locked V4: `0.4557`
+  - V4.5: `0.4439`
+
+V4.5 did slightly improve one useful ordinal metric:
+
+- test `+-1` band accuracy:
+  - locked V4: `0.7233`
+  - V4.5: `0.7330`
+
+### Decision
+
+Do not promote V4.5 to the new baseline.
+
+This was a valid objective-change challenger, but not a clean win. The current
+V4 baseline stays locked.
+
+## Milestone 46: Object-Focused Crop Pipeline Started
+
+### Decision
+
+The next controlled preprocessing experiment will test whether box/object
+framing explains part of the synthetic-to-real gap.
+
+Planned pipeline:
+
+- source manifest
+- detect cardboard package region
+- crop around the selected object with padding
+- pad-resize to the target square size
+- write a derived manifest with crop metadata
+- inspect contact sheets before training
+
+Primary backend:
+
+- SAM 3 text-prompted segmentation with prompts such as `cardboard box`,
+  `shipping box`, and `damaged cardboard package`
+
+Required fallback:
+
+- deterministic center-prior crop, because SAM 3 is not a normal project
+  dependency and requires separate model/checkpoint setup
+
+## Milestone 47: Object-Focused Crop Pipeline Implemented
+
+### Outcome
+
+The object-focused preprocessing pipeline is now implemented.
+
+New script:
+
+- [build_object_focused_cache.py](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/build_object_focused_cache.py)
+
+Core implementation:
+
+- [object_crop.py](/Users/inventure71/VSProjects/School/Dream2Detect/src/dream2detect/preprocessing/object_crop.py)
+
+Supported crop backends:
+
+- `sam3`: require SAM 3 and fail if unavailable
+- `center`: deterministic center-prior crop
+- `hybrid`: try SAM 3 first, then fall back to center-prior crop
+
+Correction after QC:
+
+- strict `sam3` mode now also fails if SAM 3 returns no valid crop for an image
+- the CLI default is strict `sam3`, not `hybrid`
+- center-prior crops are only acceptable when the command explicitly requests
+  `--crop-backend hybrid` or `--crop-backend center`
+
+The derived manifests include crop metadata:
+
+- crop status
+- crop method
+- SAM text prompt
+- confidence
+- mask area ratio
+- crop bounding box
+- crop notes
+
+### Smoke Verification
+
+SAM 3 is not installed in the current local environment, so the smoke runs used
+the `hybrid` path and correctly fell back to center-prior crops.
+
+Smoke artifacts:
+
+- real smoke manifest:
+  [object_focus_smoke_real_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/object_focus_smoke_real_384.csv)
+- synthetic smoke manifest:
+  [object_focus_smoke_synthetic_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/object_focus_smoke_synthetic_384.csv)
+- real contact sheet:
+  [real_object_focus_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/real_object_focus_sheet.jpg)
+- synthetic contact sheet:
+  [synthetic_object_focus_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/synthetic_object_focus_sheet.jpg)
+
+Verification command:
+
+- `PYTHONPATH=src python3 -m pytest -q tests/test_object_focused_cache.py`
+
+Result:
+
+- `6 passed`
+
+## Milestone 48: SAM3 Runtime Preflight Added
+
+### Outcome
+
+The local Mac environment was checked against the official SAM3 runtime
+requirements.
+
+Current local result:
+
+- Python: `3.12.2`
+- platform: macOS ARM / Apple Silicon
+- PyTorch: `2.6.0`
+- MPS: available
+- CUDA: unavailable
+- `sam3`: not importable
+
+This means strict SAM3 cropping cannot run locally in the current environment
+yet. The issue is not the crop pipeline; the current environment is missing a
+compatible SAM3 install and authenticated checkpoint access.
+
+Correction:
+
+- the official README path is CUDA-first
+- an open community PR adds Apple Silicon / MPS support
+- therefore MPS is a valid experimental setup target, but it must be validated
+  with `scripts/check_sam3_setup.py --device mps` and a one-image smoke before
+  full cache generation
+
+New setup artifact:
+
+- [check_sam3_setup.py](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/check_sam3_setup.py)
+- [run_sam3_mps_python.sh](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/run_sam3_mps_python.sh)
+
+New documentation:
+
+- [20-sam3-setup.md](/Users/inventure71/VSProjects/School/Dream2Detect/docs/20-sam3-setup.md)
+
+Decision:
+
+- do not install SAM3 into the local classifier environment
+- use a dedicated `sam3-mps` or CUDA environment for strict SAM3 preprocessing
+- continue allowing local `center` or explicit `hybrid` fallback only for
+  pipeline smoke tests, not for claiming SAM3 preprocessing
+
+### MPS Setup Attempt
+
+A dedicated `sam3-mps` environment was created and the Apple Silicon branch was
+installed from:
+
+- `https://github.com/provos/sam3.git@apple-silicon-support-v2`
+
+Additional import-time dependencies installed:
+
+- `einops`
+- `decord2`
+- `pycocotools`
+- `opencv-python`
+- `matplotlib`
+- `psutil`
+
+Because the branch wheel omits required subpackages such as `sam3.sam`, the
+source checkout is kept at:
+
+- `/Users/inventure71/.cache/dream2detect/sam3-apple-silicon-support-v2`
+
+Validated state:
+
+- `torch 2.12.0`
+- MPS built and available
+- full SAM3 source import succeeds when the source checkout is on `PYTHONPATH`
+- model builder exposes a `device` parameter
+- processor exposes a `device` parameter
+
+Remaining blocker:
+
+- Hugging Face SAM3 checkpoint access/token is not configured, so a real
+  one-image SAM3 smoke cannot run yet.
+
+## Milestone 49: SAM3 MPS Smoke Validated
+
+### Outcome
+
+SAM3 on Apple Silicon / MPS is now validated for this project environment.
+
+The user authenticated Hugging Face access in the `sam3-mps` environment and
+ran a one-image SAM3 smoke:
+
+```bash
+scripts/run_sam3_mps_python.sh scripts/check_sam3_setup.py \
+  --device mps \
+  --smoke-image data/real/source/redf0xwin_recognizing_defects_in_boxes_and_cardboard/images/0001.jpg \
+  --prompt "cardboard box"
+```
+
+Result:
+
+- Python `3.12.13`
+- PyTorch `2.12.0`
+- MPS built and available
+- SAM3 package importable from the Apple Silicon source checkout
+- Hugging Face token configured
+- SAM3 returned `1` box
+- first score: `0.9463`
+- first box:
+  `[18.3527, 16.3890, 1870.2390, 2405.3601]`
+
+### Strict Crop Smoke
+
+A strict SAM3/MPS crop smoke was then run on the first 12 real labeled images:
+
+```bash
+scripts/run_sam3_mps_python.sh scripts/build_object_focused_cache.py \
+  --source-manifest data/datasets/real_labeled_dataset_current.csv \
+  --output-dir data/cache/object_focus_smoke/real_sam3_mps_384 \
+  --output-manifest data/datasets/object_focus_smoke_real_sam3_mps_384.csv \
+  --image-size 384 \
+  --source-image-column image_path \
+  --crop-backend sam3 \
+  --sam3-device mps \
+  --limit 12 \
+  --contact-sheet data/qc/object_focus_smoke/real_sam3_mps_sheet.jpg \
+  --contact-sheet-max-rows 12
+```
+
+Result:
+
+- rows written: `12`
+- `object_crop_status=detected`: `12`
+- `object_crop_method=sam3_text`: `12`
+- mean confidence: `0.9024`
+- min confidence: `0.7638`
+- max confidence: `0.9794`
+
+Artifacts:
+
+- [object_focus_smoke_real_sam3_mps_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/object_focus_smoke_real_sam3_mps_384.csv)
+- [real_sam3_mps_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/real_sam3_mps_sheet.jpg)
+
+Decision:
+
+- SAM3/MPS is now usable for object-focused preprocessing.
+- The next step is visual QC of the 12-image contact sheet.
+- If the crop quality is acceptable, generate full real and synthetic
+  SAM3-object-focused caches before retraining.
+
+### QC Follow-Up
+
+Visual QC showed that SAM3 was detecting boxes, but the post-processing was not
+appropriate for classifier inputs.
+
+Problem:
+
+- the initial crop path preserved the detected rectangle aspect ratio
+- wide package detections were padded into a square canvas
+- this produced thin horizontal strips with large blank bands
+
+Correction:
+
+- object-focused preprocessing now supports `resize_mode`
+- the temporary `stretch` mode filled the square but distorted package geometry
+- default is now `square_crop`, which converts the SAM box into a square crop in
+  the original image before resizing
+- the square side length is based on the longest SAM bbox side
+- if the square is larger than a source-image dimension, the outside area is
+  padded with white pixels
+- default square padding is now `0.01` per side to keep the crop tight around
+  the SAM box
+- `pad` and `stretch` remain available for comparison/debugging
+
+Reason:
+
+- the object-focused experiment needs the package/damage to occupy most of the
+  model input
+- `square_crop` avoids both large blank bands and geometric distortion
+
+## Milestone 50: SAM BBox to Square-Crop QC Added
+
+### Outcome
+
+The object-focused preprocessing path now converts the raw SAM rectangle into a
+square crop before resizing.
+
+This preserves geometry while producing square classifier inputs.
+
+Correction:
+
+- the square crop must not be capped to the source image's shorter side
+- the shorter border is extended to the same length as the longest SAM bbox
+  border
+- if the source image cannot cover the full square, the missing region is
+  padded white
+
+Implementation details:
+
+- raw SAM bbox is stored as:
+  - `object_crop_raw_bbox_x0`
+  - `object_crop_raw_bbox_y0`
+  - `object_crop_raw_bbox_x1`
+  - `object_crop_raw_bbox_y1`
+- final square crop bbox is stored as:
+  - `object_crop_bbox_x0`
+  - `object_crop_bbox_y0`
+  - `object_crop_bbox_x1`
+  - `object_crop_bbox_y1`
+- default `resize_mode` is now `square_crop`
+- `pad` and `stretch` remain available for comparison/debugging
+
+Requested visualization was added:
+
+- original image
+- original with raw SAM bbox overlaid
+- original with square crop bbox overlaid
+- resulting image
+
+Smoke artifacts:
+
+- [object_focus_smoke_real_sam3_mps_square_crop_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/object_focus_smoke_real_sam3_mps_square_crop_384.csv)
+- [real_sam3_mps_square_crop_geometry_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/real_sam3_mps_square_crop_geometry_sheet.jpg)
+- [real_sam3_mps_square_crop_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/real_sam3_mps_square_crop_sheet.jpg)
+
+Smoke result:
+
+- rows written: `12`
+- `object_crop_status=detected`: `12`
+- `object_crop_method=sam3_text`: `12`
+- `object_crop_resize_mode=square_crop`: `12`
+
+Verification:
+
+- `38 passed`
+
+### Synthetic Smoke
+
+The same geometry visualization was generated on synthetic images, since the
+real images are already closely cropped.
+
+Artifacts:
+
+- [object_focus_smoke_synthetic_sam3_mps_square_pad_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/object_focus_smoke_synthetic_sam3_mps_square_pad_384.csv)
+- [synthetic_sam3_mps_square_pad_geometry_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/synthetic_sam3_mps_square_pad_geometry_sheet.jpg)
+- [synthetic_sam3_mps_square_pad_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/synthetic_sam3_mps_square_pad_sheet.jpg)
+
+Synthetic smoke result:
+
+- rows written: `12`
+- `object_crop_status=detected`: `12`
+- `object_crop_method=sam3_text`: `12`
+- `object_crop_resize_mode=square_crop`: `12`
+- mean confidence: `0.9560`
+- min confidence: `0.9143`
+- max confidence: `0.9724`
+
+### Padding Tightening
+
+The default square-crop padding was reduced from `0.12` per side to `0.01` per
+side.
+
+Reason:
+
+- SAM3 already returns a package-level box
+- excessive padding pulls background back into the crop
+- the object-focused preprocessing experiment should keep the object tightly in
+  frame
+
+Updated synthetic smoke artifacts:
+
+- [object_focus_smoke_synthetic_sam3_mps_square_pad01_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/object_focus_smoke_synthetic_sam3_mps_square_pad01_384.csv)
+- [synthetic_sam3_mps_square_pad01_geometry_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/synthetic_sam3_mps_square_pad01_geometry_sheet.jpg)
+- [synthetic_sam3_mps_square_pad01_sheet.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus_smoke/synthetic_sam3_mps_square_pad01_sheet.jpg)
+
+Updated synthetic smoke result:
+
+- rows written: `12`
+- `object_crop_status=detected`: `12`
+- `object_crop_method=sam3_text`: `12`
+- `object_crop_resize_mode=square_crop`: `12`
+- mean confidence: `0.9560`
+
+## Milestone 51: Full Synthetic SAM3-Cropped V4.5 Training Completed
+
+### Goal
+
+Test whether training V4.5 on SAM3 square-cropped synthetic images improves:
+
+- synthetic held-out score-band performance
+- transfer evaluation on the raw real labeled dataset
+
+The real images were not SAM-cropped for the final comparison because the user
+explicitly stopped that path.
+
+### Synthetic Crop Dataset
+
+Full synthetic SAM3/MPS preprocessing completed with strict SAM3:
+
+- source manifest:
+  [synthetic_full_qc_plus_v2_scale_processed_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/synthetic_full_qc_plus_v2_scale_processed_384.csv)
+- cropped manifest:
+  [synthetic_full_qc_plus_v2_scale_sam3_square_pad01_384.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/synthetic_full_qc_plus_v2_scale_sam3_square_pad01_384.csv)
+- cache:
+  [synthetic_full_qc_plus_v2_scale_sam3_square_pad01_384](/Users/inventure71/VSProjects/School/Dream2Detect/data/cache/synthetic_full_qc_plus_v2_scale_sam3_square_pad01_384)
+
+QC result:
+
+- rows: `899`
+- image files present: `899`
+- `object_crop_status=detected`: `899`
+- `object_crop_method=sam3_text`: `899`
+- mean SAM confidence: `0.9603`
+- min SAM confidence: `0.8823`
+- score-band coverage preserved
+
+QC artifacts:
+
+- first-40 geometry sheet:
+  [synthetic_sam3_square_pad01_geometry_head40.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus/synthetic_sam3_square_pad01_geometry_head40.jpg)
+- first-40 crop sheet:
+  [synthetic_sam3_square_pad01_head40.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus/synthetic_sam3_square_pad01_head40.jpg)
+- stratified 50-image geometry sheet:
+  [synthetic_sam3_square_pad01_geometry_stratified_sample50.jpg](/Users/inventure71/VSProjects/School/Dream2Detect/data/qc/object_focus/synthetic_sam3_square_pad01_geometry_stratified_sample50.jpg)
+
+### Training Run
+
+The V4.5 objective was retrained on the cropped synthetic manifest using the
+same controlled settings:
+
+- `residual_cnn`
+- `metadata_family_holdout`
+- `damage_safe`
+- `score_band`
+- soft-label sigma `1.0`
+- effective-number beta `0.999`
+- ordinal loss weight `0.2`
+- EMD weight `0.5`
+- seed `42`
+
+Run:
+
+- [v4_5_sam3_square_pad01_synthetic_only_20260516](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_classifier/v4_5_sam3_square_pad01_synthetic_only_20260516)
+
+Outcome:
+
+- early stopped at epoch `134`
+- best validation epoch: `94`
+- best validation mean band error: `1.1687`
+
+Synthetic held-out test:
+
+- band accuracy: `0.2039`
+- band macro F1: `0.2037`
+- mean band error: `1.2670`
+- `+-1` band accuracy: `0.7136`
+- collapsed 4-class macro F1: `0.4619`
+
+Compared to original V4.5 on synthetic heldout:
+
+- band accuracy improved: `0.1748` -> `0.2039`
+- band macro F1 improved: `0.1574` -> `0.2037`
+- mean band error improved: `1.3398` -> `1.2670`
+- collapsed coarse macro F1 improved: `0.4439` -> `0.4619`
+- `+-1` band accuracy worsened slightly: `0.7330` -> `0.7136`
+
+### Raw Real Transfer Evaluation
+
+The cropped-synthetic model was evaluated on the existing raw real manifest:
+
+- [v4_5_sam3_square_pad01_synthetic_on_real_all_test_20260516](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/real_transfer/v4_5_sam3_square_pad01_synthetic_on_real_all_test_20260516)
+
+Comparison artifact:
+
+- [v4_5_sam3_square_pad01_vs_original_20260516.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/real_transfer/v4_5_sam3_square_pad01_vs_original_20260516.csv)
+
+Raw real all-test comparison against original V4.5:
+
+- band accuracy worsened: `0.1273` -> `0.0779`
+- band macro F1 worsened: `0.0834` -> `0.0537`
+- mean band error worsened: `2.5351` -> `2.9558`
+- `+-1` band accuracy worsened: `0.3532` -> `0.2468`
+- collapsed coarse macro F1 worsened: `0.2897` -> `0.2294`
+
+### Decision
+
+The SAM3-cropped synthetic dataset is useful but **not a transfer improvement**
+in this form.
+
+Interpretation:
+
+- object-focused cropping made the synthetic holdout task cleaner
+- but it made raw-real transfer worse
+- therefore the current crop policy should not replace the baseline training
+  data for real-domain transfer
+
+Next direction:
+
+- use the SAM3-cropped synthetic dataset as an ablation result
+- do not crop real images further unless explicitly requested
+- investigate whether the crop policy removes contextual cues or changes the
+  visual scale too much relative to the raw real dataset
+
+## Milestone 52: V5 Performance Phase Opened
+
+### Goal
+
+Move from V4/V4.5 controlled challenger experiments into V5, where the goal is
+to get the strongest possible 10-band severity model while preserving the core
+experiment controls.
+
+### Decision From The SAM3 Ablation
+
+The SAM3 square-crop synthetic experiment is recorded as an ablation, not a new
+baseline.
+
+Reason:
+
+- it improved synthetic held-out performance
+- it worsened raw-real transfer on all main metrics
+- therefore it does not solve the current synthetic-to-real gap
+
+The real dataset should not be SAM-cropped further unless the plan is explicitly
+changed.
+
+### V5 Constraints
+
+V5 keeps these constraints:
+
+- no pretrained backbones
+- no silent use of raw-real test results for model selection
+- `score_band` remains the primary target
+- collapsed 4-class metrics remain secondary diagnostics
+- V4 remains the locked score-band reference until a stronger model clearly
+  replaces it
+
+### V5 Direction
+
+The next improvement should be structural, not another small hyperparameter
+tweak.
+
+Detailed design:
+
+- [docs/21-v5-design-plan.md](/Users/inventure71/VSProjects/School/Dream2Detect/docs/21-v5-design-plan.md)
+
+First target:
+
+- V5-A scalar ordinal regression
+
+Why:
+
+- the task is ordered severity prediction
+- the current 10-way classification framing still behaves like a class problem
+- a single normalized severity output can be mapped back into the ten bands for
+  direct comparison
+
+Follow-up candidates:
+
+- V5-B multitask ordinal model with scalar, 10-band, and optional coarse heads
+- V5-C threshold-based ordinal model using a CORAL/CORN-style head

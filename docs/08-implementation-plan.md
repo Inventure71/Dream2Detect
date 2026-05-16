@@ -359,3 +359,162 @@ Two-seed confirmation update:
 - therefore the baseline still stays locked
 - the next score-band tuning pass should search narrowly between `sigma=1.0`
   and `sigma=1.25`
+
+V4.2 sigma-only sweep update:
+
+- the `1.10 / 1.15 / 1.20` two-seed sweep is complete
+- no sigma value improved both validation selection and held-out ordinal test
+  behavior
+- the current V4 baseline therefore remains locked
+- the next score-band tuning axis should move from sigma width to target
+  formulation: soft-label shape or score-band weighting
+
+V4.5 implementation direction:
+
+- keep the locked V4 score-band stack unchanged except for the training
+  objective
+- add a cumulative squared EMD distance term on top of the current soft-label
+  score-band loss
+- expose the new control as `score_band_emd_weight`
+- train one single-seed challenger first before considering any new sweep
+
+V4.5 outcome:
+
+- the hybrid soft-CE + cumulative squared EMD challenger was implemented and
+  trained
+- it slightly improved held-out `+-1` band accuracy
+- but it did not beat the locked V4 baseline on validation mean band error or
+  held-out mean band error
+- therefore the locked V4 baseline remains the current reference
+
+## Object-Focused Preprocessing Phase
+
+The next domain-shift hypothesis is that synthetic and real images differ in
+object framing. Synthetic images tend to keep the package near the center and
+large in frame, while real images may include more background or already-cropped
+views.
+
+The new preprocessing path should build object-focused caches before training:
+
+- detect the cardboard box/package region with SAM 3 text prompts when SAM 3 is
+  available
+- use a deterministic center-prior crop fallback only in explicit `hybrid`
+  mode; strict `sam3` mode must fail rather than silently producing center
+  crops
+- crop around the selected box region with padding, then pad-resize to the
+  target square resolution
+- write crop metadata into the derived manifest so failures and fallbacks are
+  auditable
+
+SAM 3 remains an optional runtime backend because the official release requires
+the latest `facebookresearch/sam3` package, gated Hugging Face checkpoint access,
+and a CUDA-oriented environment.
+
+Apple Silicon / MPS support is tracked as an experimental path based on the
+open upstream PR for MPS support. It is not treated as validated until
+`scripts/check_sam3_setup.py --device mps` passes and a one-image smoke returns
+real SAM boxes.
+
+Validation update:
+
+- SAM3/MPS passed the one-image smoke after Hugging Face auth was configured
+- strict SAM3/MPS crop smoke on 12 real images produced 12 `sam3_text`
+  detections and 0 fallbacks
+- visual QC of the 12-image contact sheet is now required before full-cache
+  generation
+
+QC correction:
+
+- the initial SAM3 smoke used aspect-preserving pad-resize after detection
+- wide package detections became thin horizontal strips on a square canvas
+- the temporary `stretch` mode filled the square but distorted package geometry
+- object-focused preprocessing now defaults to `resize_mode=square_crop`, which
+  converts the SAM box into a square crop in the original image before resizing
+- square side length is based on the longest SAM bbox side and is no longer
+  capped by the source image's shorter side
+- when that square extends beyond the source image, the missing pixels are
+  padded white
+- default square padding is now `0.01` per side to keep the object crop tight
+- both the raw SAM box and final square crop box are persisted in the manifest
+- the geometry QC sheet shows original image, SAM bbox overlay, square bbox
+  overlay, and resulting crop
+- `resize_mode=pad` and `resize_mode=stretch` remain available only for
+  comparison/debugging
+
+Full synthetic crop experiment result:
+
+- full synthetic SAM3 square-crop dataset was generated successfully
+- V4.5 retraining on that dataset improved synthetic held-out band accuracy,
+  band macro F1, mean band error, and collapsed 4-class macro F1 versus
+  original V4.5
+- raw-real transfer evaluation worsened on every main metric versus original
+  V4.5
+- therefore the SAM3-cropped synthetic dataset is an ablation artifact, not a
+  new baseline replacement
+- do not SAM-crop the real dataset further unless the plan is explicitly changed
+
+Setup and preflight are documented in
+[docs/20-sam3-setup.md](/Users/inventure71/VSProjects/School/Dream2Detect/docs/20-sam3-setup.md).
+
+Implementation status:
+
+- [build_object_focused_cache.py](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/build_object_focused_cache.py)
+  now builds object-focused manifests and optional source/crop contact sheets
+- `sam3`, `center`, and `hybrid` crop backends are supported
+- local smoke runs passed through the `hybrid` fallback path because SAM 3 is
+  not installed in the current environment
+- the CLI now defaults to strict `sam3` mode and raises immediately if SAM 3 is
+  not installed, so future SAM experiments cannot be mistaken for center crops
+- [check_sam3_setup.py](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/check_sam3_setup.py)
+  records the exact Python, PyTorch, CUDA, SAM3, and Hugging Face readiness
+  checks before any strict SAM3 crop run
+- [run_sam3_mps_python.sh](/Users/inventure71/VSProjects/School/Dream2Detect/scripts/run_sam3_mps_python.sh)
+  runs project scripts inside the dedicated `sam3-mps` environment with the
+  Apple Silicon SAM3 source checkout on `PYTHONPATH`
+- `--sam3-device` is available for strict crop runs so the same pipeline can
+  target `cuda`, `mps`, or `cpu` when the installed SAM3 build supports device
+  selection
+
+## V5 Performance Phase
+
+V5 starts after the object-focused preprocessing ablation.
+
+Detailed V5 design:
+
+- [docs/21-v5-design-plan.md](/Users/inventure71/VSProjects/School/Dream2Detect/docs/21-v5-design-plan.md)
+
+The V5 goal is to improve the 10-band `score_band` task as much as possible
+without abandoning the experiment controls:
+
+- no pretrained models
+- no silent real-test leakage into model selection
+- no SAM-cropping of real images unless explicitly approved later
+- keep the 10-band task primary and use collapsed 4-class metrics only as
+  secondary diagnostics
+
+The current evidence says the next improvement should not be another small
+sigma, dropout, or learning-rate tweak. V4.5 already tested an ordinal-distance
+objective, and the SAM3 crop ablation showed that cleaner synthetic framing can
+improve synthetic holdout while hurting raw-real transfer.
+
+V5 should therefore test structural target/head changes:
+
+1. **V5-A scalar ordinal regression**
+   - keep the from-scratch residual CNN backbone
+   - replace the 10-way-only objective with a single normalized severity output
+   - train against the representative band score normalized to `[0, 1]`
+   - evaluate by mapping the scalar prediction back into the 10 score bands
+2. **V5-B multitask ordinal model**
+   - shared from-scratch backbone
+   - scalar severity head
+   - 10-band score head
+   - optional collapsed coarse auxiliary head
+3. **V5-C threshold ordinal model**
+   - from-scratch CORAL/CORN-style ordered-threshold head
+   - same data, split, and augmentation controls as V4
+
+Initial V5 priority:
+
+- implement V5-A first
+- compare it against locked V4, V4.5, real-only, and raw-real transfer
+- only move to V5-B or V5-C after the scalar head gives a clean answer

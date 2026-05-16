@@ -191,6 +191,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Gaussian sigma for soft ordinal score-band targets.",
     )
     parser.add_argument(
+        "--score-band-emd-weight",
+        type=float,
+        default=0.0,
+        help="Weight for the cumulative squared EMD distance term on score-band training.",
+    )
+    parser.add_argument(
         "--score-band-class-weight-strategy",
         choices=["balanced", "effective"],
         default="effective",
@@ -343,6 +349,7 @@ def main() -> None:
     print(f"Target label mode: {args.target_label_mode}")
     if args.target_label_mode == "score_band":
         print(f"Score-band soft-label sigma: {args.score_band_soft_label_sigma}")
+        print(f"Score-band EMD weight: {args.score_band_emd_weight}")
         print(
             "Score-band class weighting: "
             f"{args.score_band_class_weight_strategy} "
@@ -396,6 +403,7 @@ def main() -> None:
         freeze_backbone=args.freeze_backbone,
         ordinal_loss_weight=args.ordinal_loss_weight,
         score_band_soft_label_sigma=args.score_band_soft_label_sigma,
+        score_band_emd_weight=args.score_band_emd_weight,
         score_band_class_weight_strategy=args.score_band_class_weight_strategy,
         score_band_effective_beta=args.score_band_effective_beta,
         target_label_mode=args.target_label_mode,

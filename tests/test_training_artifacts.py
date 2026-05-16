@@ -74,6 +74,7 @@ class TrainingArtifactTests(unittest.TestCase):
             freeze_backbone=False,
             ordinal_loss_weight=0.0,
             score_band_soft_label_sigma=1.0,
+            score_band_emd_weight=0.5,
             score_band_class_weight_strategy="effective",
             score_band_effective_beta=0.999,
             target_label_mode="score_band",
@@ -96,6 +97,7 @@ class TrainingArtifactTests(unittest.TestCase):
         self.assertFalse(config["use_augmentation"])
         self.assertEqual(config["ordinal_loss_weight"], 0.0)
         self.assertEqual(config["score_band_soft_label_sigma"], 1.0)
+        self.assertEqual(config["score_band_emd_weight"], 0.5)
         self.assertEqual(config["score_band_class_weight_strategy"], "effective")
         self.assertEqual(config["score_band_effective_beta"], 0.999)
         self.assertEqual(config["target_label_mode"], "score_band")
