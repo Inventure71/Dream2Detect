@@ -13,6 +13,7 @@ Dream2Detect studies synthetic-to-real generalization for visible package/cardbo
 ```text
 dataset/               compact delivery datasets, ready to run
 pipelines/             one folder per pipeline, each documented
+checkpoint_tools/      teacher-facing scripts for testing saved checkpoints
 scripts/               shared runnable entrypoints for V1-V5B
 src/dream2detect/      minimal shared training package for V1-V5B
 ```
@@ -48,4 +49,15 @@ python3 scripts/train_synthetic_regressor.py \
 python3 scripts/train_multitask_classifier.py \
   --manifest dataset/synthetic/manifest.csv \
   --output-dir outputs/v5_b_multitask
+```
+
+## Test Saved Checkpoints
+
+Place trained `.pt` files under `checkpoints/`, then run:
+
+```bash
+PYTHONPATH=.:src python3 checkpoint_tools/test_checkpoints.py \
+  --checkpoints-dir checkpoints \
+  --manifest dataset/real/manifest.csv \
+  --output-dir checkpoint_results
 ```

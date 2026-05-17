@@ -8,6 +8,8 @@ This branch combines the two project tracks into one cleaned delivery tree.
   pretrained/timm pipeline from `main` under `pipelines/v0-main-pretrained/`.
 - `dataset/synthetic/` contains the compact synthetic delivery dataset.
 - `dataset/real/` contains the compact real delivery dataset.
+- `checkpoint_tools/` contains the teacher-facing script for testing trained
+  checkpoints placed under a root-level `checkpoints/` folder.
 - `scripts/` and `src/dream2detect/training/` contain only the shared runnable
   training/evaluation support for V1-V5B.
 
