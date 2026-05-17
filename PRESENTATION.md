@@ -62,7 +62,6 @@ What we learned:
 
 Evidence:
 
-- `docs/12-milestone-log.md`
 - `data/training_runs/synthetic_classifier/synthetic_combined_phase1_plus_targeted_555_processed_224_224_lr0003_wd0001_do01_no_sampler_patience60_20260508`
 
 ---
@@ -467,7 +466,6 @@ What we learned:
 
 Evidence:
 
-- `docs/21-v5-design-plan.md`
 - `data/training_runs/synthetic_regressor/v5_a_scalar_ordinal_seed42_20260516_fixed`
 - `data/evaluations/model_checkpoint_comparison/v4_v45_v5_within_band_comparison.csv`
 
@@ -550,7 +548,6 @@ What we learned:
 
 Evidence:
 
-- `docs/21-v5-design-plan.md`
 - `data/training_runs/synthetic_multitask/v5_b_multitask_scalar_band_coarse_seed42_20260516`
 - `data/evaluations/model_checkpoint_comparison/v5_b_round1_comparison.csv`
 - `data/evaluations/model_checkpoint_comparison/v5_b_longer_comparison.csv`

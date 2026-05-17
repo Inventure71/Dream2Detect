@@ -2,21 +2,12 @@
 
 Dream2Detect studies synthetic-to-real generalization for visible package/cardboard defect severity.
 
-## Label Images
+## Teacher Quick View
 
-Use:
-
-[INSTRUCTIONS_FOR_LABELLING.md](INSTRUCTIONS_FOR_LABELLING.md)
-
-## Project Docs
-
-- [Delivery branch guide](DELIVERY.md)
-- [V0-V5B pipeline index](pipelines/README.md)
-- [Project understanding](docs/01-project-understanding.md)
-- [Severity scale standards](docs/06-package-severity-scale-standards.md)
-- [Real dataset relabeling](docs/07-real-dataset-relabeling.md)
-- [Implementation plan](docs/08-implementation-plan.md)
-- [Data contracts](docs/09-data-contracts.md)
+- Start here: [DELIVERY.md](DELIVERY.md)
+- Pipeline summaries: [pipelines/README.md](pipelines/README.md)
+- Presentation narrative: [PRESENTATION.md](PRESENTATION.md)
+- Main pretrained model notes: [FinalModels/README.md](FinalModels/README.md)
 
 ## Layout
 
@@ -24,11 +15,13 @@ Use:
 apps/labeling-ui/      Supabase labeling app
 dataset/               compact delivery datasets, ready to run
 data/                  ignored full local datasets, registries, templates, SQLite state
-docs/                  project docs and rubric
 generated_images/      synthetic image outputs
 pipelines/             documented V0-V5B pipeline ladder
 scripts/               project helper scripts
 src/dream2detect/      Python package code
+TrainingFiles/         restored main-branch training scripts
+EvaluartionFiles/      restored main-branch evaluation scripts
+FinalModels/           restored main-branch model notes
 ```
 
 ## Delivery Datasets
@@ -40,3 +33,9 @@ The delivery branch includes two compact dataset folders:
 
 Each manifest uses `image_path` values relative to its own dataset folder, for
 example `images/example.png`.
+
+Validate them with:
+
+```bash
+python3 scripts/validate_delivery_datasets.py
+```

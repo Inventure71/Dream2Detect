@@ -10,8 +10,10 @@ This branch combines the two project tracks into one cleaned delivery tree.
   V5-B, plus the V0 main/pretrained track.
 - `dataset/synthetic/` contains the compact synthetic delivery dataset.
 - `dataset/real/` contains the compact real delivery dataset.
-- `src/`, `scripts/`, `docs/`, and `tests/` preserve the newer experimental
-  pipeline from `exp`.
+- `src/`, `scripts/`, and `tests/` preserve the newer experimental pipeline
+  from `exp`.
+- `PRESENTATION.md` gives the short V1-to-V5B story without requiring the long
+  internal project docs.
 
 ## Source Branches
 
@@ -65,7 +67,6 @@ Run:
 
 ```bash
 python3 -m py_compile scripts/*.py src/dream2detect/**/*.py
-pytest
+PYTHONPATH=.:src pytest
 python3 scripts/validate_delivery_datasets.py
 ```
-
