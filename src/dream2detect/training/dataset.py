@@ -370,6 +370,7 @@ class SyntheticManifestDataset(Dataset):
         transform: transforms.Compose | None = None,
     ) -> None:
         self.manifest_path = Path(manifest_path)
+        self.manifest_dir = self.manifest_path.parent
         self.target_mode = target_mode
         self.transform = transform or build_eval_transform()
 
@@ -396,16 +397,32 @@ class SyntheticManifestDataset(Dataset):
 
         self._validate_rows()
 
+    def _resolve_image_path(self, image_path_value: object) -> Path:
+        """
+        Resolve both legacy repo-root paths and delivery manifest-relative paths.
+        """
+        image_path = Path(str(image_path_value))
+        if image_path.exists():
+            return image_path
+
+        manifest_relative_path = self.manifest_dir / image_path
+        if manifest_relative_path.exists():
+            return manifest_relative_path
+
+        return image_path
+
     def _validate_rows(self) -> None:
         """
         Fail early if the manifest points to missing files or invalid labels.
         """
         for row_index, row in self.frame.iterrows():
-            image_path = Path(row["image_path"])
+            image_path = self._resolve_image_path(row["image_path"])
             if not image_path.exists():
                 raise FileNotFoundError(
-                    f"Row {row_index} points to a missing image: {image_path}"
+                    f"Row {row_index} points to a missing image: "
+                    f"{row['image_path']} (also tried {self.manifest_dir / str(row['image_path'])})"
                 )
+            self.frame.at[row_index, "_resolved_image_path"] = str(image_path)
 
             coarse_class = row["training_coarse_class"]
             if coarse_class not in COARSE_CLASS_TO_INDEX:
@@ -424,7 +441,7 @@ class SyntheticManifestDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, object]:
         row = self.frame.iloc[index]
 
-        image_path = Path(row["image_path"])
+        image_path = Path(row["_resolved_image_path"])
         image = Image.open(image_path).convert("RGB")
         image_tensor = self.transform(image)
 

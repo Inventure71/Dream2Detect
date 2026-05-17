@@ -433,6 +433,38 @@ class TrainingControlTests(unittest.TestCase):
             self.assertEqual(SCORE_BAND_NAMES[5], "46-55")
             self.assertEqual(int(dataset[0]["target"]), 5)
 
+    def test_dataset_resolves_manifest_relative_image_paths(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            images_path = temp_path / "images"
+            images_path.mkdir()
+            image_path = images_path / "example.png"
+            Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image_path)
+            manifest_path = temp_path / "manifest.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "prompt_id": 1,
+                        "image_path": "images/example.png",
+                        "training_score_band": "46-55",
+                        "training_coarse_class": "moderate",
+                        "training_representative_score": 50,
+                        "training_label_source": "accepted_as_labeled",
+                        "qc_status": "accepted_as_labeled",
+                    }
+                ]
+            ).to_csv(manifest_path, index=False)
+
+            dataset = SyntheticManifestDataset(
+                manifest_path,
+                target_mode="score_band",
+                transform=transforms.ToTensor(),
+            )
+
+            metadata = dataset[0]["metadata"]
+            self.assertEqual(int(dataset[0]["target"]), 5)
+            self.assertEqual(metadata["image_path"], str(image_path))
+
     def test_dataset_can_target_coarse_ordinal_with_scalar_class_indices(self) -> None:
         with TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
