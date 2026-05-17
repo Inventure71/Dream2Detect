@@ -39,3 +39,12 @@ models/
 *.pt
 *.pth
 *.onnx
+
+# Dataset-generation local outputs
+dataset_generation/generated_images/
+dataset_generation/data/batches/
+dataset_generation/data/cache/
+dataset_generation/data/datasets/
+dataset_generation/data/pipelines/
+dataset_generation/data/qc/
+dataset_generation/data/*.sqlite3

@@ -14,6 +14,7 @@ Presentation: https://canva.link/4wm0l3yeq6bvidc
 
 ```text
 dataset/               compact delivery datasets, ready to run
+dataset_generation/    preserved prompt/image/QC generation workflow
 pipelines/             one folder per pipeline, each documented
 checkpoint_tools/      teacher-facing scripts for testing saved checkpoints
 scripts/               shared runnable entrypoints for V1-V5B
