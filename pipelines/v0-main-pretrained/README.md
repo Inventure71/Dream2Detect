@@ -37,7 +37,7 @@ Other V0 trainers:
 ## Evaluate
 
 ```bash
-python3 pipelines/v0-main-pretrained/EvaluartionFiles/evaluate3.py \
+python3 pipelines/v0-main-pretrained/EvaluationFiles/evaluate3.py \
   --checkpoint outputs/v0_emd/best_model.pt \
   --manifest dataset/real/manifest.csv \
   --images_dir dataset/real \
@@ -47,18 +47,17 @@ python3 pipelines/v0-main-pretrained/EvaluartionFiles/evaluate3.py \
 
 Ensemble evaluators:
 
-- `pipelines/v0-main-pretrained/EvaluartionFiles/evaluate_ensemble.py`
-- `pipelines/v0-main-pretrained/EvaluartionFiles/evaluate_triple.py`
-- `pipelines/v0-main-pretrained/EvaluartionFiles/predict.py`
+- `pipelines/v0-main-pretrained/EvaluationFiles/evaluate_ensemble.py`
+- `pipelines/v0-main-pretrained/EvaluationFiles/evaluate_triple.py`
+- `pipelines/v0-main-pretrained/EvaluationFiles/predict.py`
 
 ## Code
 
 - `TrainingFiles/`
-- `EvaluartionFiles/`
+- `EvaluationFiles/`
 - `FinalModels/README.md`
 
 ## Result Summary
 
 This is the high-performing pretrained comparison track. It is separate from
 the V1-V5B no-pretrain experiment ladder.
-

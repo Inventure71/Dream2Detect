@@ -8,18 +8,18 @@ directly comparable to the Dream2Detect benchmark table.
 Usage
 -----
 python evaluate.py \
-    --checkpoint outputs/run_03/best_model.pt \
-    --manifest   outputs/run_03/manifest.csv \
-    --images_dir outputs/run_03/ \
-    --output_dir outputs/eval_01
+    --checkpoint outputs/v0_emd/best_model.pt \
+    --manifest   dataset/real/manifest.csv \
+    --images_dir dataset/real \
+    --output_dir outputs/v0_emd_real_eval
 
 Outputs
 -------
 - Console report: 4-class accuracy + 10-band benchmark table
-- outputs/eval_01/results.csv        : per-image predictions vs ground truth
-- outputs/eval_01/confusion_matrix.png : 4-class confusion matrix
-- outputs/eval_01/band_error_dist.png  : band error distribution
-- outputs/eval_01/score_scatter.png  : predicted vs actual score scatter
+- outputs/v0_emd_real_eval/results.csv          : per-image predictions vs ground truth
+- outputs/v0_emd_real_eval/confusion_matrix.png : 4-class confusion matrix
+- outputs/v0_emd_real_eval/band_error_dist.png  : band error distribution
+- outputs/v0_emd_real_eval/score_scatter.png    : predicted vs actual score scatter
 """
 
 import argparse
@@ -215,7 +215,7 @@ def parse_args():
     p.add_argument("--checkpoint",  required=True)
     p.add_argument("--manifest",    required=True)
     p.add_argument("--images_dir",  required=True)
-    p.add_argument("--output_dir",  default="outputs/eval_01")
+    p.add_argument("--output_dir",  default="outputs/v0_eval")
     p.add_argument("--img_size",    type=int, default=384)
     p.add_argument("--max_images",  type=int, default=None)
     p.add_argument("--model_name",  default="Your Model",

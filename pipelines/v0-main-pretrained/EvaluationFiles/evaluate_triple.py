@@ -7,12 +7,12 @@ Supports any combination of dual, band, and EMD models.
 Usage
 -----
 python evaluate_triple.py \
-    --checkpoint_a outputs/run_03/best_model.pt \
-    --checkpoint_b outputs/emd_01/best_model.pt \
-    --checkpoint_c outputs/convnext_base_01/best_model.pt \
+    --checkpoint_a outputs/v0_dual/best_model.pt \
+    --checkpoint_b outputs/v0_emd/best_model.pt \
+    --checkpoint_c outputs/v0_convnext_base/best_model.pt \
     --manifest     dataset/real/manifest.csv \
     --images_dir   dataset/real \
-    --output_dir   outputs/eval_triple \
+    --output_dir   outputs/v0_triple_eval \
     --model_name   "Triple Ensemble Base+EMD+ConvNeXtDual"
 
 Optional weighting (must sum to 1.0):
@@ -169,7 +169,7 @@ def parse_args():
     p.add_argument("--checkpoint_c", required=True, help="Third model checkpoint")
     p.add_argument("--manifest",     required=True)
     p.add_argument("--images_dir",   required=True)
-    p.add_argument("--output_dir",   default="outputs/eval_triple")
+    p.add_argument("--output_dir",   default="outputs/v0_triple_eval")
     p.add_argument("--model_name",   default="Triple Ensemble")
     p.add_argument("--weight_a",     type=float, default=0.333)
     p.add_argument("--weight_b",     type=float, default=0.334)

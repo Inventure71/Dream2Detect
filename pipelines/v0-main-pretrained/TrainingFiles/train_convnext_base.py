@@ -33,7 +33,7 @@ from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
 V0_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(V0_ROOT / "EvaluartionFiles"))
+sys.path.insert(0, str(V0_ROOT / "EvaluationFiles"))
 
 from src.dataset import (
     BoxDamageDataset, COARSE_TO_IDX,
@@ -55,7 +55,7 @@ def parse_args():
     p.add_argument("--freeze_epochs", type=int,   default=5)
     p.add_argument("--alpha",         type=float, default=0.5)
     p.add_argument("--num_workers",   type=int,   default=4)
-    p.add_argument("--output_dir",    default="outputs/convnext_base_01")
+    p.add_argument("--output_dir",    default="outputs/v0_convnext_base")
     p.add_argument("--seed",          type=int,   default=42)
     p.add_argument("--fp16",          action="store_true")
     return p.parse_args()

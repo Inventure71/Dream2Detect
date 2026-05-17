@@ -5,7 +5,8 @@ committed to this cleanup branch.
 
 ## Checkpoints
 
-Download the model folder you want into `outputs/`:
+Download the model folder you want into `outputs/` and use the normalized
+folder names below:
 
 | Model | Drive Link | Reported +-1 Accuracy | Reported MBE |
 |---|---|---:|---:|
@@ -18,37 +19,36 @@ Expected layout:
 
 ```text
 outputs/
-  EMD/best_model.pt
-  SAM/best_model.pt
-  BaseModel/best_model.pt
-  Dual/best_model.pt
+  v0_emd/best_model.pt
+  v0_sam/best_model.pt
+  v0_base/best_model.pt
+  v0_dual/best_model.pt
 ```
 
 ## Evaluate One Model
 
 ```bash
-python3 pipelines/v0-main-pretrained/EvaluartionFiles/evaluate3.py \
-  --checkpoint outputs/EMD/best_model.pt \
+python3 pipelines/v0-main-pretrained/EvaluationFiles/evaluate3.py \
+  --checkpoint outputs/v0_emd/best_model.pt \
   --manifest dataset/real/manifest.csv \
   --images_dir dataset/real \
-  --output_dir outputs/eval_emd \
+  --output_dir outputs/v0_emd_real_eval \
   --model_name "EMD"
 ```
 
 ## Evaluate An Ensemble
 
 ```bash
-python3 pipelines/v0-main-pretrained/EvaluartionFiles/evaluate_ensemble.py \
-  --checkpoint_a outputs/EMD/best_model.pt \
-  --checkpoint_b outputs/Dual/best_model.pt \
+python3 pipelines/v0-main-pretrained/EvaluationFiles/evaluate_ensemble.py \
+  --checkpoint_a outputs/v0_emd/best_model.pt \
+  --checkpoint_b outputs/v0_dual/best_model.pt \
   --weight_a 0.50 \
   --manifest dataset/real/manifest.csv \
   --images_dir dataset/real \
-  --output_dir outputs/eval_emd_dual \
+  --output_dir outputs/v0_emd_dual_eval \
   --model_name "EMD+Dual"
 ```
 
 SAM checkpoints expect SAM-cropped input. Use
 `pipelines/v0-main-pretrained/TrainingFiles/preprocess_sam.py` to create a
 cropped copy first.
-

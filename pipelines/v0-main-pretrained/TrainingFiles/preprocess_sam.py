@@ -36,7 +36,7 @@ python3 pipelines/v0-main-pretrained/TrainingFiles/train_band.py \
     --images_dir outputs/v0_sam_cropped \
     --backbone convnext_small \
     --epochs 60 \
-    --output_dir outputs/sam_band_01 \
+    --output_dir outputs/v0_sam_band \
     --fp16
 """
 
@@ -226,7 +226,7 @@ def main():
     print(f"Now train with:")
     print(f"  python train_band.py --manifest {out_root}/manifest.csv "
           f"--images_dir {out_root}/ --epochs 60 "
-          f"--output_dir outputs/sam_band_01 --fp16")
+          f"--output_dir outputs/v0_sam_band --fp16")
 
 
 if __name__ == "__main__":

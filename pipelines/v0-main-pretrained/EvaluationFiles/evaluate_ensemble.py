@@ -13,11 +13,11 @@ Best combinations to try:
 Usage
 -----
 python evaluate_ensemble.py \
-    --checkpoint_a outputs/run_03/best_model.pt \
-    --checkpoint_b outputs/band_01/best_model.pt \
-    --manifest     outputs/run_03/manifest.csv \
-    --images_dir   outputs/run_03/ \
-    --output_dir   outputs/eval_ensemble_01 \
+    --checkpoint_a outputs/v0_dual/best_model.pt \
+    --checkpoint_b outputs/v0_band/best_model.pt \
+    --manifest     dataset/real/manifest.csv \
+    --images_dir   dataset/real \
+    --output_dir   outputs/v0_ensemble_eval \
     --model_name   "Ensemble dual+band"
 """
 
@@ -173,7 +173,7 @@ def parse_args():
     p.add_argument("--checkpoint_b", required=True, help="Second model checkpoint")
     p.add_argument("--manifest",     required=True)
     p.add_argument("--images_dir",   required=True)
-    p.add_argument("--output_dir",   default="outputs/eval_ensemble_01")
+    p.add_argument("--output_dir",   default="outputs/v0_ensemble_eval")
     p.add_argument("--model_name",   default="Ensemble")
     p.add_argument("--weight_a",     type=float, default=0.5,
                    help="Weight for model A (model B gets 1-weight_a)")

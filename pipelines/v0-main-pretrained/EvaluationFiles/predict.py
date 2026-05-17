@@ -13,17 +13,17 @@ Works with all Dream2Detect models:
 Usage
 -----
 # Single image:
-python predict.py --checkpoint outputs/EMD/best_model.pt \
-                  --image /path/to/photo.jpg
+python predict.py --checkpoint outputs/v0_emd/best_model.pt \
+                  --image dataset/real/images/0001.jpg
 
 # Directory of images:
-python predict.py --checkpoint outputs/EMD/best_model.pt \
-                  --image_dir /path/to/photos/ \
+python predict.py --checkpoint outputs/v0_emd/best_model.pt \
+                  --image_dir dataset/real/images \
                   --output_csv results.csv
 
 # With visualisation:
-python predict.py --checkpoint outputs/EMD/best_model.pt \
-                  --image /path/to/photo.jpg \
+python predict.py --checkpoint outputs/v0_emd/best_model.pt \
+                  --image dataset/real/images/0001.jpg \
                   --visualize
 """
 
@@ -220,7 +220,7 @@ def parse_args():
         description="Run any Dream2Detect model on images"
     )
     p.add_argument("--checkpoint", required=True,
-                   help="Path to model checkpoint e.g. outputs/EMD/best_model.pt")
+                   help="Path to model checkpoint e.g. outputs/v0_emd/best_model.pt")
     p.add_argument("--image",      default=None,
                    help="Single image path")
     p.add_argument("--image_dir",  default=None,
