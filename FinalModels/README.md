@@ -168,7 +168,7 @@ For SAM model, point at a SAM-cropped image:
 ```bash
 python predict.py \
   --checkpoint outputs/SAM/best_model.pt \
-  --image path/to/your/sam_cropped_image.jpg
+  --image your_images_cropped/images/your_image.jpg
 ```
 
 ---
