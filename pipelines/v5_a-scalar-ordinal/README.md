@@ -1,31 +1,39 @@
 # V5-A - Scalar Ordinal Regression
 
-## Question
+## Purpose
 
-Does predicting a scalar severity value transfer better than direct 10-band
-classification?
+Test whether predicting a scalar severity value transfers better than direct
+10-band classification.
 
-## Change
+## Dataset
 
-V5-A used a from-scratch residual GroupNorm regressor with a sigmoid scalar
-head. Predictions are mapped back to the official 10 score bands for
-evaluation.
+Use the delivery synthetic dataset:
 
-## Implementation
+- `dataset/synthetic/manifest.csv`
+- `dataset/synthetic/images/`
+
+## Run
+
+```bash
+python3 scripts/train_synthetic_regressor.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --image-size 384 \
+  --model-variant residual_cnn_groupnorm_regressor \
+  --split-strategy metadata_family_holdout \
+  --augmentation-profile damage_safe \
+  --num-epochs 160 \
+  --output-dir outputs/v5_a_scalar_ordinal
+```
+
+## Code
 
 - `scripts/train_synthetic_regressor.py`
 - `src/dream2detect/training/train_regressor.py`
 - `src/dream2detect/training/models.py`
 - `src/dream2detect/training/metrics.py`
 
-## Main Artifacts
+## Result Summary
 
-- `data/training_runs/synthetic_regressor/v5_a_scalar_ordinal_seed42_20260516_fixed`
-- `data/evaluations/model_checkpoint_comparison/v5_a_scalar_ordinal_synthetic_test_predictions.csv`
-- `data/evaluations/model_checkpoint_comparison/v5_a_scalar_ordinal_real_all_raw_predictions.csv`
-
-## Result
-
-V5-A was mechanically correct and improved some raw-real ordinal transfer
-metrics, but it weakened synthetic score-band performance. It motivated V5-B.
+V5-A improved some raw-real ordinal behavior but weakened synthetic 10-band
+performance, motivating V5-B.
 

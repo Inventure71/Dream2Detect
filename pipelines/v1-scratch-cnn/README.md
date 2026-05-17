@@ -1,30 +1,38 @@
 # V1 - First Synthetic-Only Scratch CNN
 
-## Question
+## Purpose
 
-Can synthetic package/cardboard severity labels be learned at all by a small
-from-scratch CNN?
+Test whether package/cardboard severity labels are learnable from synthetic
+images by a small from-scratch CNN.
 
 ## Dataset
 
-Early runs used the first reviewed synthetic sets, then the corrected combined
-synthetic manifest. The stronger V1-style run used an 800-image combined
-synthetic dataset.
+Use the delivery synthetic dataset:
 
-Relevant manifests:
+- `dataset/synthetic/manifest.csv`
+- `dataset/synthetic/images/`
 
-- `data/datasets/synthetic_combined_phase1_plus_targeted_555_processed_224.csv`
-- `dataset/synthetic/manifest.csv` for the compact delivery dataset
+## Run
 
-## Implementation
+```bash
+python3 scripts/train_synthetic_classifier.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --image-size 224 \
+  --model-variant simple_cnn \
+  --target-label-mode coarse \
+  --num-epochs 120 \
+  --output-dir outputs/v1_scratch_cnn
+```
+
+## Code
 
 - `scripts/train_synthetic_classifier.py`
 - `src/dream2detect/training/dataset.py`
 - `src/dream2detect/training/models.py`
 - `src/dream2detect/training/train_classifier.py`
 
-## Result
+## Result Summary
 
-V1 proved the labels were learnable but fragile. It was superseded by the
-stronger V2 residual and full-QC setup.
+V1 showed that synthetic labels were learnable, but the simple model was fragile
+and was superseded by the residual full-QC setup in V2.
 

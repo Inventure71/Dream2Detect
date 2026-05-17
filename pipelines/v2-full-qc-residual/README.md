@@ -1,32 +1,40 @@
-# V2 - Full-QC Residual Baseline And Targeted Scale-Up
+# V2 - Full-QC Residual Baseline
 
-## Question
+## Purpose
 
-Do cleaner labels, 384 px inputs, and a stronger from-scratch residual CNN
-improve synthetic learning and real transfer?
+Test whether the cleaned synthetic dataset, 384 px inputs, and a stronger
+from-scratch residual CNN improve synthetic learning and real-transfer
+diagnostics.
 
 ## Dataset
 
-- `data/datasets/synthetic_full_qc_plus_v2_scale_processed_384.csv`
-- delivery equivalent: `dataset/synthetic/manifest.csv`
+Use the delivery synthetic dataset:
 
-This dataset has 899 accepted base examples after full QC plus the V2
-real-failure-targeted synthetic scale-up.
+- `dataset/synthetic/manifest.csv`
+- `dataset/synthetic/images/`
 
-## Implementation
+## Run
+
+```bash
+python3 scripts/train_synthetic_classifier.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --image-size 384 \
+  --model-variant residual_cnn \
+  --target-label-mode coarse \
+  --augmentation-profile damage_safe \
+  --num-epochs 160 \
+  --output-dir outputs/v2_full_qc_residual
+```
+
+## Code
 
 - `scripts/train_synthetic_classifier.py`
-- `scripts/build_image_cache.py`
 - `src/dream2detect/training/train_classifier.py`
 - `src/dream2detect/training/models.py`
+- `src/dream2detect/training/dataset.py`
 
-## Main Artifacts
+## Result Summary
 
-- `data/evaluations/real_transfer/v2_scale_comparison_20260513.csv`
-- `data/training_runs/synthetic_classifier/v2_scale_384_residual_damage_safe_ordinal02_20260513`
-
-## Result
-
-V2 improved the synthetic task and some real-transfer diagnostics, but it did
-not close the synthetic-to-real gap. It became the controlled baseline for V3.
+V2 improved the synthetic task and became the controlled baseline for later
+training-stack experiments.
 

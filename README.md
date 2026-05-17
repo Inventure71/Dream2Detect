@@ -6,22 +6,15 @@ Dream2Detect studies synthetic-to-real generalization for visible package/cardbo
 
 - Start here: [DELIVERY.md](DELIVERY.md)
 - Pipeline summaries: [pipelines/README.md](pipelines/README.md)
-- Presentation narrative: [PRESENTATION.md](PRESENTATION.md)
-- Main pretrained model notes: [FinalModels/README.md](FinalModels/README.md)
+- Main pretrained model notes: [pipelines/v0-main-pretrained/FinalModels/README.md](pipelines/v0-main-pretrained/FinalModels/README.md)
 
 ## Layout
 
 ```text
-apps/labeling-ui/      Supabase labeling app
 dataset/               compact delivery datasets, ready to run
-data/                  ignored full local datasets, registries, templates, SQLite state
-generated_images/      synthetic image outputs
-pipelines/             documented V0-V5B pipeline ladder
-scripts/               project helper scripts
-src/dream2detect/      Python package code
-TrainingFiles/         restored main-branch training scripts
-EvaluartionFiles/      restored main-branch evaluation scripts
-FinalModels/           restored main-branch model notes
+pipelines/             one folder per pipeline, each documented
+scripts/               shared runnable entrypoints for V1-V5B
+src/dream2detect/      minimal shared training package for V1-V5B
 ```
 
 ## Delivery Datasets
@@ -38,4 +31,21 @@ Validate them with:
 
 ```bash
 python3 scripts/validate_delivery_datasets.py
+```
+
+## Common Commands
+
+```bash
+python3 scripts/train_synthetic_classifier.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --image-size 384 \
+  --output-dir outputs/v4_score_band
+
+python3 scripts/train_synthetic_regressor.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --output-dir outputs/v5_a_scalar
+
+python3 scripts/train_multitask_classifier.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --output-dir outputs/v5_b_multitask
 ```

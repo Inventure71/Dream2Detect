@@ -1,30 +1,40 @@
 # V4 - Official 10-Band Score-Band Baseline
 
-## Question
+## Purpose
 
-What happens when the project moves from four coarse classes to the official
-10-band severity target?
+Move from four coarse classes to the official 10-band severity target.
 
 ## Dataset
 
-- `data/datasets/synthetic_full_qc_plus_v2_scale_processed_384.csv`
-- delivery equivalent: `dataset/synthetic/manifest.csv`
+Use the delivery synthetic dataset:
 
-## Implementation
+- `dataset/synthetic/manifest.csv`
+- `dataset/synthetic/images/`
 
-- `src/dream2detect/training/train_classifier.py`
-- `src/dream2detect/training/metrics.py`
+## Run
+
+```bash
+python3 scripts/train_synthetic_classifier.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --image-size 384 \
+  --model-variant residual_cnn \
+  --target-label-mode score_band \
+  --score-band-soft-label-sigma 1.0 \
+  --score-band-class-weight-strategy effective \
+  --split-strategy metadata_family_holdout \
+  --augmentation-profile damage_safe \
+  --num-epochs 160 \
+  --output-dir outputs/v4_score_band
+```
+
+## Code
+
 - `scripts/train_synthetic_classifier.py`
 - `scripts/analyze_classifier_checkpoint.py`
+- `src/dream2detect/training/`
 
-## Main Artifacts
+## Result Summary
 
-- `data/training_runs/synthetic_classifier/synthetic_full_qc_plus_v2_scale_processed_384_384_20260514_192919`
-- `data/evaluations/model_checkpoint_comparison/v4_v45_v5_within_band_comparison.csv`
-
-## Result
-
-V4 became the locked 10-band score-band reference. It is not the final real
-transfer solution, but it is the clean reference for later score-band
+V4 became the clean 10-band reference for later ordinal-loss and V5 target-head
 experiments.
 

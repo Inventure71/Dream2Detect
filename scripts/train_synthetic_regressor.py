@@ -15,10 +15,8 @@ if str(SRC_ROOT) not in sys.path:
 from dream2detect.training.train_regressor import train_synthetic_regressor
 
 
-DEFAULT_MANIFEST = (
-    REPO_ROOT / "data/datasets/synthetic_full_qc_plus_v2_scale_processed_384.csv"
-)
-RUNS_ROOT = REPO_ROOT / "data/training_runs/synthetic_regressor"
+DEFAULT_MANIFEST = REPO_ROOT / "dataset/synthetic/manifest.csv"
+RUNS_ROOT = REPO_ROOT / "outputs/synthetic_regressor"
 
 
 def build_argument_parser() -> argparse.ArgumentParser:

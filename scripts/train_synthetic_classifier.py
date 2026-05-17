@@ -15,19 +15,11 @@ if str(SRC_ROOT) not in sys.path:
 from dream2detect.training.train_classifier import train_synthetic_classifier
 
 
-DEFAULT_RAW_MANIFEST = (
-    REPO_ROOT / "data/datasets/synthetic_combined_phase1_plus_scaleup_200_processed_224.csv"
-)
-RUNS_ROOT = REPO_ROOT / "data/training_runs/synthetic_classifier"
+DEFAULT_RAW_MANIFEST = REPO_ROOT / "dataset/synthetic/manifest.csv"
+RUNS_ROOT = REPO_ROOT / "outputs/synthetic_classifier"
 
 
 def choose_default_manifest(image_size: int) -> Path:
-    processed_manifest = REPO_ROOT / (
-        "data/datasets/"
-        f"synthetic_combined_phase1_plus_scaleup_200_processed_{image_size}.csv"
-    )
-    if processed_manifest.exists():
-        return processed_manifest
     return DEFAULT_RAW_MANIFEST
 
 
@@ -44,7 +36,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=None,
+        default=DEFAULT_RAW_MANIFEST,
         help="Path to the training manifest CSV.",
     )
     parser.add_argument(

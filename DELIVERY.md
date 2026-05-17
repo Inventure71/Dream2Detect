@@ -4,24 +4,17 @@ This branch combines the two project tracks into one cleaned delivery tree.
 
 ## What Is Included
 
-- `EvaluartionFiles/`, `FinalModels/`, and `TrainingFiles/` restore the
-  pretrained/timm pipeline from `main`.
-- `pipelines/` documents the no-pretrain experiment ladder from V1 through
-  V5-B, plus the V0 main/pretrained track.
+- `pipelines/` contains one folder per pipeline, including the restored
+  pretrained/timm pipeline from `main` under `pipelines/v0-main-pretrained/`.
 - `dataset/synthetic/` contains the compact synthetic delivery dataset.
 - `dataset/real/` contains the compact real delivery dataset.
-- `src/`, `scripts/`, and `tests/` preserve the newer experimental pipeline
-  from `exp`.
-- `PRESENTATION.md` gives the short V1-to-V5B story without requiring the long
-  internal project docs.
+- `scripts/` and `src/dream2detect/training/` contain only the shared runnable
+  training/evaluation support for V1-V5B.
 
 ## Source Branches
 
 - Base branch for this delivery branch: `exp`
-- Restored folders from `main`:
-  - `EvaluartionFiles/`
-  - `FinalModels/`
-  - `TrainingFiles/`
+- Restored code from `main` is scoped under `pipelines/v0-main-pretrained/`.
 
 The branch was assembled in an isolated worktree so `main` and `exp` remain
 unchanged.
@@ -67,6 +60,5 @@ Run:
 
 ```bash
 python3 -m py_compile scripts/*.py src/dream2detect/**/*.py
-PYTHONPATH=.:src pytest
 python3 scripts/validate_delivery_datasets.py
 ```

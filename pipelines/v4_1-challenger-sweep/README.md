@@ -1,29 +1,34 @@
 # V4.1 - Narrow Score-Band Challenger Sweep
 
-## Question
+## Purpose
 
-Can a small controlled set of score-band training changes beat the locked V4
-baseline without changing the experiment too broadly?
+Test a small controlled set of score-band training changes against the locked
+V4 baseline.
 
-## Scope
+## Dataset
 
-V4.1 kept the V4 setup fixed and tested a narrow set of challenger settings.
-The leading challenger was checked against the locked baseline instead of being
-promoted from one favorable run.
+Use the delivery synthetic dataset:
 
-## Implementation
+- `dataset/synthetic/manifest.csv`
+- `dataset/synthetic/images/`
+
+## Run
+
+```bash
+python3 scripts/run_classifier_experiment_grid.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --output-root outputs/v4_1_challenger_sweep \
+  --target-label-mode score_band \
+  --split-strategy metadata_family_holdout
+```
+
+## Code
 
 - `scripts/run_classifier_experiment_grid.py`
 - `scripts/train_synthetic_classifier.py`
-- `src/dream2detect/training/train_classifier.py`
+- `src/dream2detect/training/`
 
-## Main Artifacts
-
-- `data/training_runs/synthetic_classifier_grid/v4_1_local_sweep_20260514`
-- `data/evaluations/synthetic_only/v4_1_score_band_challenger_comparison_20260514.csv`
-- `data/evaluations/synthetic_only/v4_1_two_seed_baseline_vs_sigma125_20260514.csv`
-
-## Result
+## Result Summary
 
 No V4.1 challenger earned promotion over the locked V4 baseline.
 

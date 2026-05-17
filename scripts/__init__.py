@@ -1,1 +1,1 @@
-"""Project helper scripts that are importable for focused tests."""
+"""Runnable Dream2Detect delivery scripts."""

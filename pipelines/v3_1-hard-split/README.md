@@ -1,32 +1,38 @@
-# V3.1 - Harder Split Discipline
+# V3.1 - Metadata-Family Holdout Split
 
-## Question
+## Purpose
 
-Were earlier synthetic scores too optimistic because similar prompt families
-appeared across train, validation, and test splits?
+Reduce synthetic over-optimism by preventing similar prompt families from
+appearing across train, validation, and test splits.
 
-## Change
+## Dataset
 
-V3.1 introduced `metadata_family_holdout`, grouping examples by:
+Use the delivery synthetic dataset:
 
-- `training_coarse_class`
-- `damage_profile_primary`
-- `box_form_factor`
-- `background_context`
+- `dataset/synthetic/manifest.csv`
+- `dataset/synthetic/images/`
 
-## Implementation
+## Run
+
+```bash
+python3 scripts/train_synthetic_classifier.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --image-size 384 \
+  --model-variant residual_cnn \
+  --target-label-mode coarse \
+  --split-strategy metadata_family_holdout \
+  --augmentation-profile damage_safe \
+  --num-epochs 160 \
+  --output-dir outputs/v3_1_hard_split
+```
+
+## Code
 
 - `src/dream2detect/training/splits.py`
 - `src/dream2detect/training/train_classifier.py`
-- `scripts/run_classifier_experiment_grid.py`
+- `scripts/train_synthetic_classifier.py`
 
-## Main Artifacts
+## Result Summary
 
-- `data/evaluations/synthetic_only/v3_1_hard_split_baseline_20260513.csv`
-- `data/evaluations/synthetic_only/v3_1_metadata_family_holdout_comparison_20260513.csv`
-
-## Result
-
-V3.1 became the fairer synthetic-only comparison regime. Later V4 and V5
-experiments use this split discipline.
+V3.1 became the fairer synthetic-only evaluation regime used by V4 and V5.
 

@@ -285,7 +285,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--manifest-template",
         default=None,
-        help="Format string with {image_size}, for example data/datasets/name_{image_size}.csv.",
+        help="Format string with {image_size}, for example dataset/synthetic/manifest.csv.",
     )
     parser.add_argument("--image-sizes", default="224")
     parser.add_argument("--learning-rates", default="0.0003")
@@ -339,7 +339,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--output-root",
         type=Path,
         default=None,
-        help="Directory for this grid run. Defaults under data/training_runs.",
+        help="Directory for this grid run. Defaults under outputs/.",
     )
     parser.add_argument("--dry-run", action="store_true")
     return parser
@@ -388,7 +388,7 @@ def main() -> None:
         if args.output_root is not None
         else (
             REPO_ROOT
-            / "data/training_runs/synthetic_classifier_grid"
+            / "outputs/synthetic_classifier_grid"
             / f"grid_{timestamp}"
         ).resolve()
     )

@@ -1,22 +1,31 @@
 # V5-B - Multitask Scalar, Band, And Coarse Heads
 
-## Question
+## Purpose
 
-Can a shared from-scratch model combine scalar ordinal transfer with explicit
-10-band and coarse-class supervision?
+Test whether one shared from-scratch model can combine scalar ordinal transfer
+with explicit 10-band and coarse-class supervision.
 
-## Change
+## Dataset
 
-V5-B uses a shared backbone with:
+Use the delivery synthetic dataset:
 
-- scalar severity head
-- 10-band classification head
-- optional coarse-class head
+- `dataset/synthetic/manifest.csv`
+- `dataset/synthetic/images/`
 
-The selected scalar checkpoint is evaluated on synthetic test data and raw real
-images.
+## Run
 
-## Implementation
+```bash
+python3 scripts/train_multitask_classifier.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --image-size 384 \
+  --model-variant residual_cnn_groupnorm_multitask \
+  --split-strategy metadata_family_holdout \
+  --augmentation-profile damage_safe \
+  --num-epochs 160 \
+  --output-dir outputs/v5_b_multitask
+```
+
+## Code
 
 - `scripts/train_multitask_classifier.py`
 - `src/dream2detect/training/train_multitask_classifier.py`
@@ -24,16 +33,9 @@ images.
 - `src/dream2detect/training/dataset.py`
 - `src/dream2detect/training/metrics.py`
 
-## Main Artifacts
+## Result Summary
 
-- `data/training_runs/synthetic_multitask/v5_b_multitask_scalar_band_coarse_seed42_20260516`
-- `data/training_runs/synthetic_multitask/v5_b_multitask_scalar_band_coarse_seed42_20260516_longer_from160`
-- `data/evaluations/model_checkpoint_comparison/v5_b_round1_comparison.csv`
-- `data/evaluations/model_checkpoint_comparison/v5_b_longer_comparison.csv`
-
-## Result
-
-V5-B improved broad raw-real ordinal transfer compared with V5-A, but the
-longer run did not justify promoting it as a final solved baseline. It is the
-latest no-pretrain evidence point in the delivery ladder.
+V5-B improved broad raw-real ordinal transfer compared with V5-A, but it was
+not strong enough to replace the earlier score-band baseline as a final solved
+model.
 

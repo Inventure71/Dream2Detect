@@ -1,32 +1,54 @@
 # V3 - Training Stack Search
 
-## Question
+## Purpose
 
-Can the V2 synthetic baseline be improved by changing the training stack while
-holding the dataset and core task stable?
+Search for training-stack improvements around the V2 residual baseline while
+holding the dataset and core task stable.
 
 ## Changes Tested
 
 - GroupNorm residual backbone
-- ordinal coarse-class training mode
-- constrained damage-safe RandAugment profiles
+- ordinal coarse-class loss
+- damage-safe augmentation profiles
 - sampler and regularization variants
 
-## Implementation
+## Dataset
 
-- `src/dream2detect/training/models.py`
-- `src/dream2detect/training/dataset.py`
-- `src/dream2detect/training/train_classifier.py`
+Use the delivery synthetic dataset:
+
+- `dataset/synthetic/manifest.csv`
+- `dataset/synthetic/images/`
+
+## Run One Representative Candidate
+
+```bash
+python3 scripts/train_synthetic_classifier.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --image-size 384 \
+  --model-variant residual_cnn_groupnorm \
+  --target-label-mode coarse_ordinal \
+  --ordinal-loss-weight 0.2 \
+  --augmentation-profile damage_safe_ra_low \
+  --num-epochs 160 \
+  --output-dir outputs/v3_training_stack
+```
+
+## Run A Small Grid
+
+```bash
+python3 scripts/run_classifier_experiment_grid.py \
+  --manifest dataset/synthetic/manifest.csv \
+  --output-root outputs/v3_grid \
+  --target-label-mode coarse
+```
+
+## Code
+
+- `scripts/train_synthetic_classifier.py`
 - `scripts/run_classifier_experiment_grid.py`
+- `src/dream2detect/training/`
 
-## Main Artifacts
+## Result Summary
 
-- `data/evaluations/synthetic_only/v3_synthetic_training_comparison_20260513.csv`
-- `data/training_runs/synthetic_classifier/v3_bn_ra_low_coarse_ord02_nosampler_20260513`
-
-## Result
-
-The selected V3 candidate improved the synthetic coarse-class baseline, but the
-team then tightened the split discipline in V3.1 before moving to the official
-10-band target.
-
+V3 improved the coarse synthetic baseline, but split discipline was tightened
+in V3.1 before the project moved to the 10-band target.

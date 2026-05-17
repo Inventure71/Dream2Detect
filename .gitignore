@@ -31,13 +31,6 @@ tmp/
 # Local databases and snapshots
 *.sqlite3
 
-# Project data is distributed separately because it is large.
-data/*
-!data/README.md
-
-# Generated image output outside data/
-generated_images/
-
 # Training outputs and model artifacts
 runs/
 outputs/
