@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 from sklearn.metrics import confusion_matrix, f1_score, precision_recall_fscore_support
 
-from .dataset import SCORE_BAND_TO_COARSE_INDEX
+from .dataset import COARSE_CLASS_NAMES, SCORE_BAND_NAMES, SCORE_BAND_TO_COARSE_INDEX
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,17 @@ class ClassificationMetrics:
     per_class: dict[str, PerClassMetrics]
     predicted_class_distribution: dict[str, int]
     target_class_distribution: dict[str, int]
+
+
+@dataclass(frozen=True)
+class ScalarScoreBandMetrics:
+    normalized_mae: float
+    normalized_rmse: float
+    score_mae: float
+    score_rmse: float
+    band_metrics: ClassificationMetrics
+    coarse_metrics: ClassificationMetrics
+    band_ordinal_errors: dict[str, float | int]
 
 
 def logits_to_predictions(logits: torch.Tensor) -> torch.Tensor:
@@ -228,6 +239,66 @@ def compute_classification_metrics_from_predictions(
             num_classes=num_classes,
             class_names=normalized_names,
         ),
+    )
+
+
+def scores_to_band_indices(scores: torch.Tensor) -> torch.Tensor:
+    """
+    Map continuous 0-100 severity scores to official score-band indices.
+
+    Boundaries follow the band upper limits:
+    0-10, 11-20, 21-30, 31-35, 36-45, 46-55, 56-65, 66-75, 76-85, 86-100.
+    Scores outside 0-100 are clamped before mapping.
+    """
+    clamped = torch.clamp(scores.to(torch.float32), 0.0, 100.0)
+    boundaries = torch.tensor(
+        [10.0, 20.0, 30.0, 35.0, 45.0, 55.0, 65.0, 75.0, 85.0],
+        dtype=torch.float32,
+        device=clamped.device,
+    )
+    return torch.bucketize(clamped, boundaries, right=False).to(torch.long)
+
+
+def compute_scalar_score_band_metrics(
+    *,
+    normalized_predictions: torch.Tensor,
+    normalized_targets: torch.Tensor,
+) -> ScalarScoreBandMetrics:
+    if len(normalized_predictions) != len(normalized_targets):
+        raise ValueError("Predictions and targets must have the same length.")
+    if len(normalized_targets) == 0:
+        raise ValueError("Cannot compute scalar metrics on zero examples.")
+
+    predictions = torch.clamp(normalized_predictions.detach().cpu().to(torch.float32), 0.0, 1.0)
+    targets = torch.clamp(normalized_targets.detach().cpu().to(torch.float32), 0.0, 1.0)
+    normalized_errors = predictions - targets
+    score_predictions = predictions * 100.0
+    score_targets = targets * 100.0
+    score_errors = score_predictions - score_targets
+
+    predicted_bands = scores_to_band_indices(score_predictions)
+    target_bands = scores_to_band_indices(score_targets)
+    predicted_coarse = band_indices_to_coarse_indices(predicted_bands)
+    target_coarse = band_indices_to_coarse_indices(target_bands)
+
+    return ScalarScoreBandMetrics(
+        normalized_mae=float(torch.mean(torch.abs(normalized_errors)).item()),
+        normalized_rmse=float(torch.sqrt(torch.mean(normalized_errors * normalized_errors)).item()),
+        score_mae=float(torch.mean(torch.abs(score_errors)).item()),
+        score_rmse=float(torch.sqrt(torch.mean(score_errors * score_errors)).item()),
+        band_metrics=compute_classification_metrics_from_predictions(
+            predicted_bands,
+            target_bands,
+            num_classes=len(SCORE_BAND_NAMES),
+            class_names=SCORE_BAND_NAMES,
+        ),
+        coarse_metrics=compute_classification_metrics_from_predictions(
+            predicted_coarse,
+            target_coarse,
+            num_classes=len(COARSE_CLASS_NAMES),
+            class_names=COARSE_CLASS_NAMES,
+        ),
+        band_ordinal_errors=summarize_ordinal_errors(predicted_bands, target_bands),
     )
 
 

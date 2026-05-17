@@ -25,7 +25,14 @@ ScoreBandLabel = Literal[
     "76-85",
     "86-100",
 ]
-TargetMode = Literal["coarse", "coarse_ordinal", "score_band", "multitask", "fine"]
+TargetMode = Literal[
+    "coarse",
+    "coarse_ordinal",
+    "score_band",
+    "multitask",
+    "fine",
+    "fine_normalized",
+]
 AugmentationProfile = Literal[
     "none",
     "mild",
@@ -441,10 +448,19 @@ class SyntheticManifestDataset(Dataset):
                     SCORE_BAND_TO_INDEX[row["training_score_band"]],
                     dtype=torch.long,
                 ),
+                "score": torch.tensor(
+                    float(row["training_representative_score"]) / 100.0,
+                    dtype=torch.float32,
+                ),
             }
         elif self.target_mode == "fine":
             target = torch.tensor(
                 float(row["training_representative_score"]),
+                dtype=torch.float32,
+            )
+        elif self.target_mode == "fine_normalized":
+            target = torch.tensor(
+                float(row["training_representative_score"]) / 100.0,
                 dtype=torch.float32,
             )
         else:

@@ -6,7 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
 import torch
+from PIL import Image
 
 from dream2detect.training.train_classifier import (
     EarlyStoppingTracker,
@@ -16,6 +18,13 @@ from dream2detect.training.train_classifier import (
     plot_class_monitoring,
     plot_epoch_metrics,
     save_epoch_checkpoint,
+)
+from dream2detect.training.train_regressor import (
+    build_regression_run_config,
+    train_synthetic_regressor,
+)
+from dream2detect.training.train_multitask_classifier import (
+    train_multitask_classifier,
 )
 
 
@@ -111,6 +120,323 @@ class TrainingArtifactTests(unittest.TestCase):
         self.assertEqual(config["init_from_checkpoint"], "/tmp/initial.pt")
         self.assertEqual(config["checkpoint_every_n_epochs"], 1)
         self.assertEqual(config["plot_every_n_epochs"], 1)
+
+    def test_build_regression_run_config_records_v5_controls(self) -> None:
+        config = build_regression_run_config(
+            manifest_path=Path("/tmp/manifest.csv"),
+            image_size=384,
+            batch_size=8,
+            num_epochs=160,
+            learning_rate=0.0003,
+            optimizer_name="adamw",
+            lr_scheduler_name="reduce_on_plateau",
+            lr_scheduler_factor=0.5,
+            lr_scheduler_patience=10,
+            min_learning_rate=1e-5,
+            random_seed=42,
+            device=torch.device("cpu"),
+            include_resize=False,
+            weight_decay=0.0001,
+            dropout_p=0.1,
+            early_stopping_patience=40,
+            early_stopping_min_delta=0.0,
+            overfit_subset_size=None,
+            use_augmentation=True,
+            augmentation_profile="damage_safe",
+            model_variant="residual_cnn_groupnorm_regressor",
+            target_mode="fine_normalized",
+            train_fraction=0.6,
+            val_fraction=0.2,
+            test_fraction=0.2,
+            split_strategy="metadata_family_holdout",
+            split_group_column=None,
+            checkpoint_every_n_epochs=1,
+        )
+
+        self.assertEqual(config["model_variant"], "residual_cnn_groupnorm_regressor")
+        self.assertEqual(config["target_mode"], "fine_normalized")
+        self.assertEqual(config["selection_metric_name"], "val_mean_band_error")
+        self.assertEqual(config["selection_metric_mode"], "min")
+        self.assertEqual(config["optimizer_name"], "adamw")
+        self.assertEqual(config["lr_scheduler_name"], "reduce_on_plateau")
+        self.assertEqual(config["split_strategy"], "metadata_family_holdout")
+
+    def test_train_regressor_writes_v5_checkpoints_and_band_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            rows = []
+            bands = [
+                ("0-10", "intact", 5, (255, 255, 255)),
+                ("11-20", "minor", 15, (220, 220, 220)),
+                ("46-55", "moderate", 50, (120, 120, 120)),
+                ("86-100", "severe", 93, (40, 40, 40)),
+            ]
+            for index, (band, coarse, score, color) in enumerate(bands, start=1):
+                image_path = temp_path / f"image_{index}.png"
+                Image.new("RGB", (32, 32), color=color).save(image_path)
+                rows.append(
+                    {
+                        "prompt_id": index,
+                        "image_path": str(image_path),
+                        "training_score_band": band,
+                        "training_coarse_class": coarse,
+                        "training_representative_score": score,
+                        "training_label_source": "accepted_as_labeled",
+                        "qc_status": "accepted_as_labeled",
+                    }
+                )
+            manifest_path = temp_path / "manifest.csv"
+            pd.DataFrame(rows).to_csv(manifest_path, index=False)
+
+            output_dir = temp_path / "run"
+            result = train_synthetic_regressor(
+                manifest_path=manifest_path,
+                image_size=32,
+                batch_size=2,
+                num_epochs=1,
+                learning_rate=0.001,
+                optimizer_name="adamw",
+                lr_scheduler_name="none",
+                weight_decay=0.0001,
+                dropout_p=0.1,
+                random_seed=42,
+                output_dir=output_dir,
+                use_augmentation=False,
+                model_variant="residual_cnn_groupnorm_regressor",
+                overfit_subset_size=4,
+                checkpoint_every_n_epochs=1,
+            )
+
+            self.assertEqual(result.selection_metric_name, "val_mean_band_error")
+            self.assertIsNotNone(result.test_metrics.mean_band_error)
+            self.assertTrue((output_dir / "run_config.json").exists())
+            self.assertTrue((output_dir / "epoch_metrics.csv").exists())
+            self.assertTrue((output_dir / "checkpoints/latest.pt").exists())
+            self.assertTrue((output_dir / "checkpoints/best.pt").exists())
+
+            config = json.loads((output_dir / "run_config.json").read_text())
+            self.assertEqual(config["model_variant"], "residual_cnn_groupnorm_regressor")
+            self.assertEqual(config["target_mode"], "fine_normalized")
+
+    def test_train_regressor_early_stopping_completes_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            rows = []
+            bands = [
+                ("0-10", "intact", 5, (255, 255, 255)),
+                ("11-20", "minor", 15, (220, 220, 220)),
+                ("46-55", "moderate", 50, (120, 120, 120)),
+                ("86-100", "severe", 93, (40, 40, 40)),
+            ]
+            for index, (band, coarse, score, color) in enumerate(bands, start=1):
+                image_path = temp_path / f"early_stop_image_{index}.png"
+                Image.new("RGB", (32, 32), color=color).save(image_path)
+                rows.append(
+                    {
+                        "prompt_id": index,
+                        "image_path": str(image_path),
+                        "training_score_band": band,
+                        "training_coarse_class": coarse,
+                        "training_representative_score": score,
+                        "training_label_source": "accepted_as_labeled",
+                        "qc_status": "accepted_as_labeled",
+                    }
+                )
+            manifest_path = temp_path / "manifest.csv"
+            pd.DataFrame(rows).to_csv(manifest_path, index=False)
+
+            output_dir = temp_path / "early_stop_run"
+            result = train_synthetic_regressor(
+                manifest_path=manifest_path,
+                image_size=32,
+                batch_size=2,
+                num_epochs=3,
+                learning_rate=0.001,
+                optimizer_name="adamw",
+                lr_scheduler_name="none",
+                weight_decay=0.0001,
+                dropout_p=0.1,
+                random_seed=42,
+                output_dir=output_dir,
+                use_augmentation=False,
+                model_variant="residual_cnn_groupnorm_regressor",
+                overfit_subset_size=4,
+                early_stopping_patience=1,
+                early_stopping_min_delta=999.0,
+                checkpoint_every_n_epochs=1,
+            )
+
+            self.assertTrue(result.early_stopped)
+            self.assertEqual(result.stopped_epoch, 2)
+            self.assertTrue((output_dir / "metrics.json").exists())
+
+    def test_train_regressor_resumes_from_latest_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            rows = []
+            bands = [
+                ("0-10", "intact", 5, (255, 255, 255)),
+                ("11-20", "minor", 15, (220, 220, 220)),
+                ("46-55", "moderate", 50, (120, 120, 120)),
+                ("86-100", "severe", 93, (40, 40, 40)),
+            ]
+            for index, (band, coarse, score, color) in enumerate(bands, start=1):
+                image_path = temp_path / f"resume_image_{index}.png"
+                Image.new("RGB", (32, 32), color=color).save(image_path)
+                rows.append(
+                    {
+                        "prompt_id": index,
+                        "image_path": str(image_path),
+                        "training_score_band": band,
+                        "training_coarse_class": coarse,
+                        "training_representative_score": score,
+                        "training_label_source": "accepted_as_labeled",
+                        "qc_status": "accepted_as_labeled",
+                    }
+                )
+            manifest_path = temp_path / "manifest.csv"
+            pd.DataFrame(rows).to_csv(manifest_path, index=False)
+
+            output_dir = temp_path / "resume_run"
+            train_synthetic_regressor(
+                manifest_path=manifest_path,
+                image_size=32,
+                batch_size=2,
+                num_epochs=1,
+                learning_rate=0.001,
+                optimizer_name="adamw",
+                lr_scheduler_name="none",
+                weight_decay=0.0001,
+                dropout_p=0.1,
+                random_seed=42,
+                output_dir=output_dir,
+                use_augmentation=False,
+                model_variant="residual_cnn_groupnorm_regressor",
+                overfit_subset_size=4,
+                checkpoint_every_n_epochs=1,
+            )
+
+            result = train_synthetic_regressor(
+                manifest_path=manifest_path,
+                image_size=32,
+                batch_size=2,
+                num_epochs=2,
+                learning_rate=0.001,
+                optimizer_name="adamw",
+                lr_scheduler_name="none",
+                weight_decay=0.0001,
+                dropout_p=0.1,
+                random_seed=42,
+                output_dir=output_dir,
+                resume_from=output_dir / "checkpoints/latest.pt",
+                use_augmentation=False,
+                model_variant="residual_cnn_groupnorm_regressor",
+                overfit_subset_size=4,
+                checkpoint_every_n_epochs=1,
+            )
+
+            with (output_dir / "epoch_metrics.csv").open(newline="") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+
+            self.assertEqual([row["epoch"] for row in rows], ["1", "2"])
+            self.assertEqual(len(result.train_history), 2)
+            self.assertEqual(len(result.val_history), 2)
+            self.assertTrue((output_dir / "checkpoints/epoch_002.pt").exists())
+
+    def test_train_multitask_resumes_from_latest_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            rows = []
+            bands = [
+                ("0-10", "intact", 5, (255, 255, 255)),
+                ("11-20", "minor", 15, (230, 230, 230)),
+                ("21-30", "minor", 25, (210, 210, 210)),
+                ("31-35", "minor", 33, (190, 190, 190)),
+                ("36-45", "moderate", 40, (170, 170, 170)),
+                ("46-55", "moderate", 50, (150, 150, 150)),
+                ("56-65", "moderate", 60, (130, 130, 130)),
+                ("66-75", "severe", 70, (100, 100, 100)),
+                ("76-85", "severe", 80, (70, 70, 70)),
+                ("86-100", "severe", 93, (40, 40, 40)),
+            ]
+            for repeat in range(8):
+                for band_index, (band, coarse, score, color) in enumerate(bands):
+                    image_path = temp_path / f"multitask_resume_{repeat}_{band_index}.png"
+                    Image.new("RGB", (32, 32), color=color).save(image_path)
+                    rows.append(
+                        {
+                            "prompt_id": len(rows) + 1,
+                            "image_path": str(image_path),
+                            "training_score_band": band,
+                            "training_coarse_class": coarse,
+                            "training_representative_score": score,
+                            "training_label_source": "accepted_as_labeled",
+                            "qc_status": "accepted_as_labeled",
+                        }
+                    )
+            manifest_path = temp_path / "manifest.csv"
+            pd.DataFrame(rows).to_csv(manifest_path, index=False)
+
+            output_dir = temp_path / "multitask_resume_run"
+            train_multitask_classifier(
+                manifest_path=manifest_path,
+                image_size=32,
+                batch_size=4,
+                num_epochs=1,
+                learning_rate=0.001,
+                optimizer_name="adamw",
+                lr_scheduler_name="none",
+                weight_decay=0.0001,
+                dropout_p=0.1,
+                random_seed=42,
+                output_dir=output_dir,
+                use_balanced_sampler=False,
+                use_augmentation=False,
+                model_variant="residual_cnn_groupnorm_multitask",
+                split_strategy="stratified_random",
+                checkpoint_every_n_epochs=1,
+            )
+
+            result = train_multitask_classifier(
+                manifest_path=manifest_path,
+                image_size=32,
+                batch_size=4,
+                num_epochs=2,
+                learning_rate=0.001,
+                optimizer_name="adamw",
+                lr_scheduler_name="none",
+                weight_decay=0.0001,
+                dropout_p=0.1,
+                random_seed=42,
+                output_dir=output_dir,
+                resume_from=output_dir / "checkpoints/latest.pt",
+                use_balanced_sampler=False,
+                use_augmentation=False,
+                model_variant="residual_cnn_groupnorm_multitask",
+                split_strategy="stratified_random",
+                checkpoint_every_n_epochs=1,
+            )
+
+            metrics = json.loads((output_dir / "metrics.json").read_text())
+
+            self.assertEqual(len(result.train_history), 2)
+            self.assertEqual(len(result.val_history), 2)
+            self.assertEqual(len(metrics["train_history"]), 2)
+            self.assertTrue((output_dir / "checkpoints/epoch_002.pt").exists())
+
+    def test_train_regressor_rejects_nonpositive_checkpoint_interval(self) -> None:
+        with self.assertRaises(ValueError):
+            train_synthetic_regressor(
+                manifest_path=Path("/tmp/missing.csv"),
+                checkpoint_every_n_epochs=0,
+            )
+
+    def test_train_regressor_rejects_unsupported_target_mode(self) -> None:
+        with self.assertRaises(ValueError):
+            train_synthetic_regressor(
+                manifest_path=Path("/tmp/missing.csv"),
+                target_mode="fine",
+            )
 
     def test_append_epoch_metrics_writes_jsonl_and_csv_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

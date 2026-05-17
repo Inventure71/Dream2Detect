@@ -18,12 +18,15 @@ from dream2detect.training.dataset import (
 from dream2detect.training.models import (
     ResidualCNNClassifier,
     ResidualGroupNormCNNClassifier,
+    ResidualGroupNormCNNRegressor,
     SimpleCNNClassifier,
 )
 from dream2detect.training.models import ResidualCNNMultiTaskClassifier
 from dream2detect.training.metrics import (
     band_indices_to_coarse_indices,
     collapse_score_band_probabilities_to_coarse,
+    compute_scalar_score_band_metrics,
+    scores_to_band_indices,
     summarize_ordinal_errors,
 )
 from dream2detect.training.splits import build_stratified_splits, derive_metadata_family_groups
@@ -118,6 +121,21 @@ class TrainingControlTests(unittest.TestCase):
     def test_groupnorm_residual_model_uses_groupnorm_layers(self) -> None:
         model = ResidualGroupNormCNNClassifier(num_classes=4)
 
+        self.assertTrue(
+            any(isinstance(module, torch.nn.GroupNorm) for module in model.modules())
+        )
+        self.assertFalse(
+            any(isinstance(module, torch.nn.BatchNorm2d) for module in model.modules())
+        )
+
+    def test_groupnorm_residual_regressor_outputs_bounded_scalar(self) -> None:
+        model = ResidualGroupNormCNNRegressor(dropout_p=0.1)
+
+        output = model(torch.zeros(2, 3, 128, 128))
+
+        self.assertEqual(tuple(output.shape), (2,))
+        self.assertTrue(torch.all(output >= 0.0))
+        self.assertTrue(torch.all(output <= 1.0))
         self.assertTrue(
             any(isinstance(module, torch.nn.GroupNorm) for module in model.modules())
         )
@@ -324,6 +342,28 @@ class TrainingControlTests(unittest.TestCase):
 
         self.assertEqual(coarse_indices.tolist(), [0, 1, 1, 2, 2, 3, 3])
 
+    def test_scores_to_band_indices_uses_official_upper_boundaries(self) -> None:
+        scores = torch.tensor([-5.0, 5.0, 10.0, 10.01, 20.0, 35.1, 65.0, 85.1, 120.0])
+
+        band_indices = scores_to_band_indices(scores)
+
+        self.assertEqual(band_indices.tolist(), [0, 0, 0, 1, 1, 4, 6, 9, 9])
+
+    def test_scalar_score_band_metrics_report_10_band_and_coarse_results(self) -> None:
+        predictions = torch.tensor([0.05, 0.15, 0.55, 0.93])
+        targets = torch.tensor([0.05, 0.33, 0.50, 0.80])
+
+        metrics = compute_scalar_score_band_metrics(
+            normalized_predictions=predictions,
+            normalized_targets=targets,
+        )
+
+        self.assertAlmostEqual(metrics.score_mae, 9.0)
+        self.assertEqual(metrics.band_metrics.accuracy, 0.5)
+        self.assertAlmostEqual(metrics.band_ordinal_errors["mean_band_error"], 0.75)
+        self.assertAlmostEqual(metrics.band_ordinal_errors["within_one_band_accuracy"], 0.75)
+        self.assertEqual(metrics.coarse_metrics.accuracy, 1.0)
+
     def test_summarize_ordinal_errors_counts_near_misses(self) -> None:
         predictions = torch.tensor([0, 1, 3, 3])
         targets = torch.tensor([0, 2, 2, 0])
@@ -421,6 +461,34 @@ class TrainingControlTests(unittest.TestCase):
 
             self.assertEqual(int(dataset[0]["target"]), 1)
 
+    def test_dataset_can_target_normalized_fine_score(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            image_path = temp_path / "example.png"
+            Image.new("RGB", (8, 8), color=(255, 255, 255)).save(image_path)
+            manifest_path = temp_path / "manifest.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "prompt_id": 1,
+                        "image_path": str(image_path),
+                        "training_score_band": "66-75",
+                        "training_coarse_class": "severe",
+                        "training_representative_score": 70,
+                        "training_label_source": "accepted_as_labeled",
+                        "qc_status": "accepted_as_labeled",
+                    }
+                ]
+            ).to_csv(manifest_path, index=False)
+
+            dataset = SyntheticManifestDataset(
+                manifest_path,
+                target_mode="fine_normalized",
+                transform=transforms.ToTensor(),
+            )
+
+            self.assertAlmostEqual(float(dataset[0]["target"]), 0.70)
+
     def test_metadata_family_holdout_split_keeps_groups_disjoint(self) -> None:
         with TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -462,6 +530,56 @@ class TrainingControlTests(unittest.TestCase):
                 labels = frame.iloc[indices]["training_coarse_class"].tolist()
                 self.assertEqual(set(labels), set(class_names))
 
+    def test_metadata_family_holdout_keeps_cross_band_families_disjoint(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            manifest_path = temp_path / "manifest.csv"
+
+            bands = [
+                ("11-20", "minor"),
+                ("21-30", "minor"),
+                ("31-35", "minor"),
+                ("36-45", "moderate"),
+                ("46-55", "moderate"),
+                ("56-65", "moderate"),
+            ]
+            rows: list[dict[str, object]] = []
+            for family_index in range(18):
+                family_bands = list(bands)
+                if family_index % 4 == 0:
+                    family_bands = family_bands[:-1]
+                if family_index % 5 == 0:
+                    family_bands = family_bands[1:]
+                for score_band, coarse_class in family_bands:
+                    rows.append(
+                        {
+                            "training_score_band": score_band,
+                            "training_coarse_class": coarse_class,
+                            "damage_profile_primary": f"shared_damage_{family_index}",
+                            "box_form_factor": "medium_standard",
+                            "background_context": f"context_{family_index % 3}",
+                            "image_path": f"/tmp/{family_index}_{score_band}.png",
+                        }
+                    )
+            frame = pd.DataFrame(rows)
+            frame.to_csv(manifest_path, index=False)
+
+            split = build_stratified_splits(
+                manifest_path,
+                random_seed=17,
+                label_column="training_score_band",
+                split_strategy="metadata_family_holdout",
+            )
+            family_ids = derive_metadata_family_groups(frame)
+
+            train_groups = set(family_ids.iloc[split.train_indices].tolist())
+            val_groups = set(family_ids.iloc[split.val_indices].tolist())
+            test_groups = set(family_ids.iloc[split.test_indices].tolist())
+
+            self.assertTrue(train_groups.isdisjoint(val_groups))
+            self.assertTrue(train_groups.isdisjoint(test_groups))
+            self.assertTrue(val_groups.isdisjoint(test_groups))
+
     def test_dataset_can_return_multitask_targets(self) -> None:
         with TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -491,15 +609,19 @@ class TrainingControlTests(unittest.TestCase):
             target = dataset[0]["target"]
             self.assertEqual(int(target["coarse"]), 3)
             self.assertEqual(int(target["score_band"]), 7)
+            self.assertAlmostEqual(float(target["score"]), 0.7)
 
-    def test_multitask_residual_model_returns_both_heads(self) -> None:
+    def test_multitask_residual_model_returns_scalar_and_classification_heads(self) -> None:
         model = ResidualCNNMultiTaskClassifier(dropout_p=0.2)
 
         output = model(torch.zeros(2, 3, 128, 128))
 
-        self.assertEqual(set(output.keys()), {"coarse_logits", "score_band_logits"})
+        self.assertEqual(set(output.keys()), {"coarse_logits", "score_band_logits", "score"})
         self.assertEqual(tuple(output["coarse_logits"].shape), (2, 4))
         self.assertEqual(tuple(output["score_band_logits"].shape), (2, 10))
+        self.assertEqual(tuple(output["score"].shape), (2,))
+        self.assertTrue(torch.all(output["score"] >= 0))
+        self.assertTrue(torch.all(output["score"] <= 1))
 
     def test_validate_split_fractions_accepts_real_policy(self) -> None:
         validate_split_fractions(

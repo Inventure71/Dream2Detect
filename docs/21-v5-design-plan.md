@@ -240,6 +240,133 @@ Purpose:
 
 This is more complex than V5-A and should not be the first V5 implementation.
 
+### V5-B Round 1 Result
+
+V5-B round 1 has been implemented and trained as a single controlled
+challenger against V5-A.
+
+Run:
+
+- [v5_b_multitask_scalar_band_coarse_seed42_20260516](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_multitask/v5_b_multitask_scalar_band_coarse_seed42_20260516)
+
+Configuration:
+
+- manifest: `data/datasets/synthetic_full_qc_plus_v2_scale_processed_384.csv`
+- image size: `384`
+- model: `residual_cnn_groupnorm_multitask`
+- heads:
+  - scalar normalized severity head
+  - auxiliary 10-band score head
+  - auxiliary 4-class coarse head
+- split strategy: `metadata_family_holdout`
+- optimizer: `adamw`
+- learning rate: `0.0003`
+- weight decay: `0.0001`
+- dropout: `0.1`
+- scheduler: `reduce_on_plateau`
+- augmentation profile: `damage_safe`
+- loss weights:
+  - scalar: `1.0`
+  - coarse: `0.3`
+  - auxiliary 10-band: `0.3`
+  - auxiliary band ordinal penalty: `0.2`
+- seed: `42`
+
+Synthetic test result:
+
+- best validation epoch: `160`
+- early stopped: `false`
+- best validation scalar mean band error: `1.9786`
+- scalar exact 10-band accuracy: `0.1461`
+- scalar `+-1` band accuracy: `0.4775`
+- scalar `+-2` band accuracy: `0.6910`
+- scalar `+-3` band accuracy: `0.8596`
+- scalar `+-4` band accuracy: `0.9213`
+- scalar mean band error: `1.9663`
+- auxiliary 10-band exact accuracy: `0.2191`
+- auxiliary 10-band mean band error: `2.1124`
+- collapsed coarse macro F1 from scalar head: `0.3881`
+- direct coarse macro F1: `0.4283`
+
+Real raw evaluation:
+
+- scalar exact 10-band accuracy: `0.1506`
+- scalar `+-1` band accuracy: `0.3948`
+- scalar `+-2` band accuracy: `0.6260`
+- scalar `+-3` band accuracy: `0.8130`
+- scalar `+-4` band accuracy: `0.9325`
+- scalar mean band error: `2.1091`
+- auxiliary 10-band exact accuracy: `0.1299`
+- auxiliary 10-band mean band error: `2.2909`
+
+Comparison artifact:
+
+- [v5_b_round1_comparison.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/model_checkpoint_comparison/v5_b_round1_comparison.csv)
+
+Interpretation:
+
+- V5-B round 1 does not beat V5-A on synthetic test ordinal performance.
+  V5-A synthetic mean band error is `1.7079`; V5-B scalar synthetic mean band
+  error is `1.9663`.
+- V5-B does improve real-domain ordinal transfer at wider tolerances compared
+  with V5-A. Real raw mean band error improves from `2.2727` to `2.1091`;
+  real raw `+-2` improves from `0.5896` to `0.6260`; real raw `+-3` improves
+  from `0.7584` to `0.8130`; real raw `+-4` improves from `0.8935` to
+  `0.9325`.
+- Real raw `+-1` is effectively unchanged and slightly worse than V5-A:
+  `0.3948` versus `0.3974`.
+- The auxiliary 10-band head improves exact band classification inside V5-B,
+  but the scalar head remains the better ordinal estimator because it has lower
+  mean band error on synthetic and real evaluation.
+- V5-B is therefore useful evidence that multitask learning may help broad
+  real-domain robustness, but this first loss-weight setting is not a better
+  synthetic baseline than V5-A.
+
+### V5-B Longer-Training Check
+
+Because V5-B round 1 selected epoch `160`, which was also the final scheduled
+epoch, the model was extended from the epoch-160 checkpoint.
+
+Extended run:
+
+- [v5_b_multitask_scalar_band_coarse_seed42_20260516_longer_from160](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_multitask/v5_b_multitask_scalar_band_coarse_seed42_20260516_longer_from160)
+
+Extended configuration:
+
+- resumed from `checkpoints/latest.pt` at epoch `160`
+- trained to `320` scheduled epochs
+- early-stopping patience increased to `80`
+- optimizer state was restored from the checkpoint
+- the checkpoint learning rate was already at the minimum: `1e-05`
+
+Result:
+
+- best validation epoch moved from `160` to `310`
+- best validation scalar mean band error improved from `1.9786` to about
+  `1.829`
+- synthetic test scalar mean band error worsened from `1.9663` to `2.0281`
+- synthetic test scalar `+-1` worsened from `0.4775` to `0.4607`
+- real raw scalar mean band error worsened from `2.1091` to `2.2442`
+- real raw scalar `+-1` worsened from `0.3948` to `0.3532`
+- real padded-384 scalar mean band error was similar/slightly better:
+  `2.1429` to `2.1143`
+
+Comparison artifact:
+
+- [v5_b_longer_comparison.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/evaluations/model_checkpoint_comparison/v5_b_longer_comparison.csv)
+
+Interpretation:
+
+- The first V5-B run was under-trained with respect to validation, but the
+  longer validation improvement did not generalize to the held-out synthetic
+  test or raw real data.
+- This suggests the current V5-B validation signal is not reliable enough for
+  model selection, or the loss weighting is pushing the model toward patterns
+  that fit validation families without improving broader generalization.
+- V5-B should not be promoted as-is. If V5-B remains interesting, the next
+  version should tune loss weights and possibly use a stricter validation
+  protocol before spending more long-run training time.
+
 ## V5-C: Threshold Ordinal Model
 
 Only run V5-C after V5-A or V5-B.
@@ -296,3 +423,109 @@ Before training, implement the V5-A infrastructure:
 4. add tests for conversion, metrics, config persistence, and overfit smoke
 5. run a tiny overfit smoke
 6. run the full V5-A challenger
+
+## Implementation Status
+
+V5-A infrastructure has started.
+
+Implemented:
+
+- `fine_normalized` dataset target mode
+- scalar severity-to-score-band metric helpers
+- `residual_cnn_groupnorm_regressor`
+- V5-compatible regressor training controls
+- per-epoch regression metrics CSV/JSONL
+- per-epoch/latest/best checkpoints
+- checkpoint resume support via `--resume-from`
+- regression training curves
+- CLI controls for optimizer, scheduler, split strategy, model variant,
+  target mode, overfit subset, checkpoint cadence, and resume checkpoint
+
+Verification:
+
+- full test suite after resume support: `87 passed`
+- CLI smoke run:
+  [v5_a_scalar_cli_smoke_20260516](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_regressor/v5_a_scalar_cli_smoke_20260516)
+- 4-example overfit gate:
+  [v5_a_scalar_overfit4_20260516](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_regressor/v5_a_scalar_overfit4_20260516)
+- fixed full-split preflight:
+  [v5_a_preflight_fullsplit_fixed_20260516](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_regressor/v5_a_preflight_fullsplit_fixed_20260516)
+- full V5-A run:
+  [v5_a_scalar_ordinal_seed42_20260516_fixed](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_regressor/v5_a_scalar_ordinal_seed42_20260516_fixed)
+
+Current status:
+
+- the command path runs end to end on MPS
+- the two-epoch smoke proves artifact wiring
+- the 4-example overfit gate reached score MAE `3.31`, mean band error `0.25`,
+  `+-1` band accuracy `1.0000`, and collapsed coarse macro F1 `1.0000`
+- exact 10-band accuracy was `0.7500`, with the remaining miss landing in a
+  neighboring band
+- metadata-family holdout was corrected so saved `split_group_id` values are
+  disjoint across train, validation, and test for 10-band runs
+- fixed full-split preflight verified `0` group overlaps for train/val,
+  train/test, and val/test
+- the full V5-A run resumed from checkpoint epoch `74` and completed cleanly
+- best validation epoch: `79`
+- best validation mean band error: `1.4171`
+- early stopped at epoch: `119`
+- final synthetic test MAE: `16.297`
+- final synthetic test 10-band accuracy: `0.1685`
+- final synthetic test 10-band macro F1: `0.1529`
+- final synthetic test mean band error: `1.7079`
+- final synthetic test `+-1` band accuracy: `0.5225`
+- final synthetic collapsed coarse macro F1: `0.4285`
+- saved epoch metrics contain `119` unique epochs with no duplicates
+- saved split artifacts still verify `0` group overlaps across train,
+  validation, and test
+
+Longer-training check:
+
+- copied the completed V5-A run to:
+  [v5_a_scalar_ordinal_seed42_20260516_fixed_longer_from119](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_regressor/v5_a_scalar_ordinal_seed42_20260516_fixed_longer_from119)
+- resumed from epoch `119`
+- extended `num_epochs` to `240`
+- raised early-stopping patience to `100`
+- stopped at epoch `179`
+- overall best epoch remained `79`
+- best post-119 validation mean band error: `1.5294` at epoch `123`
+- original best validation mean band error remained better: `1.4171`
+- final selected synthetic test metrics did not change because the best
+  checkpoint did not change
+
+Real-domain evaluation from the best V5-A checkpoint:
+
+- raw real manifest:
+  [real_labeled_dataset_current.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/real_labeled_dataset_current.csv)
+  - rows: `385`
+  - score MAE: `20.702`
+  - 10-band accuracy: `0.1351`
+  - 10-band macro F1: `0.0923`
+  - mean band error: `2.2727`
+  - `+-1` band accuracy: `0.3974`
+  - collapsed coarse macro F1: `0.2375`
+- padded 384 real manifest:
+  [real_labeled_dataset_current_padded_384_full.csv](/Users/inventure71/VSProjects/School/Dream2Detect/data/datasets/real_labeled_dataset_current_padded_384_full.csv)
+  - rows: `385`
+  - score MAE: `20.977`
+  - 10-band accuracy: `0.1481`
+  - 10-band macro F1: `0.1002`
+  - mean band error: `2.3013`
+  - `+-1` band accuracy: `0.3662`
+  - collapsed coarse macro F1: `0.2549`
+- evaluation artifacts:
+  [real_eval_summary.json](/Users/inventure71/VSProjects/School/Dream2Detect/data/training_runs/synthetic_regressor/v5_a_scalar_ordinal_seed42_20260516_fixed/real_eval_summary.json)
+
+Interpretation:
+
+- V5-A scalar regression is mechanically complete and trains correctly.
+- It learns the ordinal direction better than a flat random guess, but exact
+  10-band performance is weak.
+- The train/validation gap shows overfitting after the best epoch, so V5-A does
+  not yet solve the 10-band task by itself.
+- Training longer with the same objective did not improve the best checkpoint.
+  It further reduced training error but did not improve validation.
+- Real transfer is weaker than synthetic test performance, so V5-A does not yet
+  bridge the synthetic-to-real gap.
+- The next V5 step should compare this result against locked V4/V4.5 artifacts,
+  then decide whether to move to V5-B multitask or V5-C threshold ordinal.

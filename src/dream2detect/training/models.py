@@ -192,8 +192,7 @@ class ResidualGroupNormCNNClassifier(ResidualCNNClassifier):
 
 class ResidualCNNMultiTaskClassifier(nn.Module):
     """
-    From-scratch residual CNN with a primary coarse head and an auxiliary
-    score-band head.
+    From-scratch residual CNN with scalar, coarse, and score-band heads.
     """
 
     def __init__(
@@ -202,6 +201,7 @@ class ResidualCNNMultiTaskClassifier(nn.Module):
         num_coarse_classes: int = 4,
         num_score_bands: int = 10,
         dropout_p: float = 0.2,
+        norm_kind: str = "batch",
     ) -> None:
         super().__init__()
 
@@ -210,21 +210,22 @@ class ResidualCNNMultiTaskClassifier(nn.Module):
 
         self.stem = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=5, stride=2, padding=2, bias=False),
-            nn.BatchNorm2d(32),
+            _build_norm_2d(32, norm_kind=norm_kind),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
         )
         self.features = nn.Sequential(
-            ResidualBlock(32, 32),
-            ResidualBlock(32, 64, stride=2),
-            ResidualBlock(64, 64),
-            ResidualBlock(64, 128, stride=2),
-            ResidualBlock(128, 128),
-            ResidualBlock(128, 256, stride=2),
-            ResidualBlock(256, 256),
+            ResidualBlock(32, 32, norm_kind=norm_kind),
+            ResidualBlock(32, 64, stride=2, norm_kind=norm_kind),
+            ResidualBlock(64, 64, norm_kind=norm_kind),
+            ResidualBlock(64, 128, stride=2, norm_kind=norm_kind),
+            ResidualBlock(128, 128, norm_kind=norm_kind),
+            ResidualBlock(128, 256, stride=2, norm_kind=norm_kind),
+            ResidualBlock(256, 256, norm_kind=norm_kind),
         )
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout = nn.Dropout(p=dropout_p)
+        self.score_head = nn.Linear(256, 1)
         self.coarse_head = nn.Linear(256, num_coarse_classes)
         self.score_band_head = nn.Linear(256, num_score_bands)
 
@@ -235,9 +236,30 @@ class ResidualCNNMultiTaskClassifier(nn.Module):
         x = torch.flatten(x, 1)
         x = self.dropout(x)
         return {
+            "score": torch.sigmoid(self.score_head(x)).squeeze(dim=1),
             "coarse_logits": self.coarse_head(x),
             "score_band_logits": self.score_band_head(x),
         }
+
+
+class ResidualGroupNormCNNMultiTaskClassifier(ResidualCNNMultiTaskClassifier):
+    """
+    GroupNorm multitask variant for small-batch V5-B training.
+    """
+
+    def __init__(
+        self,
+        *,
+        num_coarse_classes: int = 4,
+        num_score_bands: int = 10,
+        dropout_p: float = 0.2,
+    ) -> None:
+        super().__init__(
+            num_coarse_classes=num_coarse_classes,
+            num_score_bands=num_score_bands,
+            dropout_p=dropout_p,
+            norm_kind="group",
+        )
 
 
 class SimpleCNNRegressor(nn.Module):
@@ -287,6 +309,64 @@ class SimpleCNNRegressor(nn.Module):
         return x.squeeze(dim=1)
 
 
+class ResidualCNNRegressor(nn.Module):
+    """
+    From-scratch residual CNN for scalar ordinal severity regression.
+
+    Output is constrained to [0, 1] so it can be mapped back to the official
+    0-100 severity scale without invalid predictions.
+    """
+
+    def __init__(
+        self,
+        dropout_p: float = 0.1,
+        *,
+        norm_kind: str = "batch",
+    ) -> None:
+        super().__init__()
+
+        if not 0.0 <= dropout_p < 1.0:
+            raise ValueError(f"dropout_p must be in [0.0, 1.0), got {dropout_p}")
+
+        self.stem = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=5, stride=2, padding=2, bias=False),
+            _build_norm_2d(32, norm_kind=norm_kind),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+        )
+        self.features = nn.Sequential(
+            ResidualBlock(32, 32, norm_kind=norm_kind),
+            ResidualBlock(32, 64, stride=2, norm_kind=norm_kind),
+            ResidualBlock(64, 64, norm_kind=norm_kind),
+            ResidualBlock(64, 128, stride=2, norm_kind=norm_kind),
+            ResidualBlock(128, 128, norm_kind=norm_kind),
+            ResidualBlock(128, 256, stride=2, norm_kind=norm_kind),
+            ResidualBlock(256, 256, norm_kind=norm_kind),
+        )
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.regressor = nn.Sequential(
+            nn.Flatten(),
+            nn.Dropout(p=dropout_p),
+            nn.Linear(256, 1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.stem(x)
+        x = self.features(x)
+        x = self.pool(x)
+        logits = self.regressor(x).squeeze(dim=1)
+        return torch.sigmoid(logits)
+
+
+class ResidualGroupNormCNNRegressor(ResidualCNNRegressor):
+    """
+    Residual scalar regressor with GroupNorm for small-batch training.
+    """
+
+    def __init__(self, dropout_p: float = 0.1) -> None:
+        super().__init__(dropout_p=dropout_p, norm_kind="group")
+
+
 def build_classifier_model(
     *,
     num_classes: int = 4,
@@ -321,3 +401,20 @@ def build_classifier_model(
         return model
 
     raise ValueError(f"Unsupported model_variant: {model_variant}")
+
+
+def build_regressor_model(
+    *,
+    dropout_p: float = 0.1,
+    model_variant: str = "simple_cnn_regressor",
+) -> nn.Module:
+    if model_variant == "simple_cnn_regressor":
+        return SimpleCNNRegressor(dropout_p=dropout_p)
+
+    if model_variant == "residual_cnn_regressor":
+        return ResidualCNNRegressor(dropout_p=dropout_p)
+
+    if model_variant == "residual_cnn_groupnorm_regressor":
+        return ResidualGroupNormCNNRegressor(dropout_p=dropout_p)
+
+    raise ValueError(f"Unsupported regressor model_variant: {model_variant}")
