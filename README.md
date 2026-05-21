@@ -3,6 +3,7 @@
 Dream2Detect studies synthetic-to-real generalization for visible package/cardboard defect severity.
 
 Presentation: https://canva.link/4wm0l3yeq6bvidc
+Report: https://docs.google.com/document/d/1DHi4dMjjbmDWHcfkbAPDVu5CtHloaJb2uUcFfvDqQ_k/edit?usp=sharing
 
 ## Teacher Quick View
 
